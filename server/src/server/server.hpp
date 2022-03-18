@@ -23,7 +23,7 @@ class Server {
     private:
         void serverLoop();
         Command execute(Command command);
-        void createClientSocket(int port);
+        void createClientSocket(int port, std::string profile);
 };
 
 #endif

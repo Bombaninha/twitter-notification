@@ -6,7 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 
-ClientSocket::ClientSocket(int port) {
+ClientSocket::ClientSocket(int port, std::string profile) {
     this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (this->sockfd < 0) {
@@ -23,6 +23,8 @@ ClientSocket::ClientSocket(int port) {
     if (bind(this->sockfd, (struct sockaddr *) &server_addr, sizeof(struct sockaddr)) < 0) {
         throw std::runtime_error("Could not bind socket");
     }
+
+    this->profile = profile;
 }
 
 ClientSocket::~ClientSocket() {
@@ -42,7 +44,7 @@ void ClientSocket::run() {
             continue;
         }
 
-        std::cout << "(Client) Recieved: " << buffer << std::endl;
+        std::cout << "(Client " << profile << ") Recieved: " << buffer << std::endl;
 
         Command command = Command(std::string(buffer));
 
@@ -55,7 +57,7 @@ void ClientSocket::run() {
             continue;
         }
 
-        std::cout << "(Client) Sent: " << std::string(response) << std::endl;
+        std::cout << "(Client " << profile << ") Sent: " << std::string(response) << std::endl;
 
         bzero(buffer, 256);
     }

@@ -80,7 +80,7 @@ Command Server::execute(Command command) {
 
     switch(command.getType()) {
         case COMMAND_CONNECT:
-            this->createClientSocket(this->nextClientPort);
+            this->createClientSocket(this->nextClientPort, command.getData());
             response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
             this->nextClientPort++;
             break;
@@ -95,8 +95,8 @@ Command Server::execute(Command command) {
     return response;
 }
 
-void Server::createClientSocket(int port) {
-    ClientSocket *clientSocket = new ClientSocket(port);
+void Server::createClientSocket(int port, std::string profile) {
+    ClientSocket *clientSocket = new ClientSocket(port, profile);
 
     std::thread* client_thread = new std::thread([clientSocket]() {
         clientSocket->run();
