@@ -3,8 +3,31 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
-
+#include <utility>
 #include "server.hpp"
+
+#define MAX_CONNECTIONS_OF_SAME_USER 2
+
+pthread_mutex_t readAndWriteMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t readMutex = PTHREAD_MUTEX_INITIALIZER;
+
+int readers = 0;
+
+void sharedReaderLock() {
+	pthread_mutex_lock(&readMutex);
+	readers++;
+	if(readers == 1)
+		pthread_mutex_lock(&readAndWriteMutex);
+	pthread_mutex_unlock(&readMutex);
+}
+
+void sharedReaderUnlock(){
+	pthread_mutex_lock(&readMutex);
+	readers--;
+	if(readers == 0)
+		pthread_mutex_unlock(&readAndWriteMutex);
+	pthread_mutex_unlock(&readMutex);
+}
 
 Server::Server(int port) {
     this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -26,6 +49,10 @@ Server::Server(int port) {
 }
 
 Server::~Server() {
+    for (auto row : this->masterTable) {
+        delete row.second;
+    }
+
     for (auto thread : this->clientThreads) {
         delete thread;
     }
@@ -97,6 +124,34 @@ Command Server::execute(Command command) {
 
 void Server::createClientSocket(int port, std::string profile) {
     ClientSocket *clientSocket = new ClientSocket(port, profile);
+    TableRow *currentTableRow;
+
+    sharedReaderLock();
+    bool usernameDoesNotExist = this->masterTable.find(profile) == this->masterTable.end();
+    sharedReaderUnlock();
+
+    if(usernameDoesNotExist) {
+        pthread_mutex_lock(&readAndWriteMutex);
+        TableRow* newTableRow;
+		this->masterTable.insert(std::make_pair(profile, newTableRow));	
+        pthread_mutex_unlock(&readAndWriteMutex);
+    } 
+    
+    std::cout << "User " + profile + " is connecting...";
+
+	sharedReaderLock();
+	currentTableRow = this->masterTable.find(profile)->second;
+	sharedReaderUnlock();
+
+    int currentRowActiveSessions = currentTableRow->getActiveSessions();
+
+    if (currentRowActiveSessions >= MAX_CONNECTIONS_OF_SAME_USER) {
+        std::cout << "\n denied: there are already 2 active sessions!\n" << std::endl;
+		// fechar conexao
+	} else {
+		currentTableRow->startSession();
+		std::cout << " connected." << std::endl;
+	}
 
     std::thread* client_thread = new std::thread([clientSocket]() {
         clientSocket->run();
