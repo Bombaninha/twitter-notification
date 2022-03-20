@@ -1,5 +1,9 @@
+#ifndef MASTER_TABLE_H
+#define MASTER_TABLE_H
+
 #include <string>
 #include <list>
+#include <map>
 
 class TableRow {
     public:
@@ -25,3 +29,6 @@ class TableRow {
         std::string getNotification();
 };
 
+extern std::map<std::string, TableRow*> masterTable;
+
+#endif

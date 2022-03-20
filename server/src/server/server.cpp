@@ -4,7 +4,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <utility>
+
+#include <map>
+
 #include "server.hpp"
+
+#include "../table/tableRow.hpp"
 
 #define MAX_CONNECTIONS_OF_SAME_USER 2
 
@@ -12,6 +17,8 @@ pthread_mutex_t readAndWriteMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t readMutex = PTHREAD_MUTEX_INITIALIZER;
 
 int readers = 0;
+
+std::map<std::string, TableRow*> masterTable;
 
 void sharedReaderLock() {
 	pthread_mutex_lock(&readMutex);
@@ -49,7 +56,7 @@ Server::Server(int port) {
 }
 
 Server::~Server() {
-    for (auto row : this->masterTable) {
+    for (auto row : masterTable) {
         delete row.second;
     }
 
@@ -124,23 +131,23 @@ Command Server::execute(Command command) {
 
 void Server::createClientSocket(int port, std::string profile) {
     ClientSocket *clientSocket = new ClientSocket(port, profile);
-    TableRow *currentTableRow;
 
     sharedReaderLock();
-    bool usernameDoesNotExist = this->masterTable.find(profile) == this->masterTable.end();
+    bool usernameDoesNotExist = masterTable.find(profile) == masterTable.end();
     sharedReaderUnlock();
 
     if(usernameDoesNotExist) {
         pthread_mutex_lock(&readAndWriteMutex);
         TableRow* newTableRow;
-		this->masterTable.insert(std::make_pair(profile, newTableRow));	
+		masterTable.insert(std::make_pair(profile, newTableRow));	
         pthread_mutex_unlock(&readAndWriteMutex);
     } 
     
     std::cout << "User " + profile + " is connecting...";
 
 	sharedReaderLock();
-	currentTableRow = this->masterTable.find(profile)->second;
+    TableRow *currentTableRow;
+	currentTableRow = masterTable.find(profile)->second;
 	sharedReaderUnlock();
 
     int currentRowActiveSessions = currentTableRow->getActiveSessions();
@@ -149,7 +156,9 @@ void Server::createClientSocket(int port, std::string profile) {
         std::cout << "\n denied: there are already 2 active sessions!\n" << std::endl;
 		// fechar conexao
 	} else {
+        // aumenta em um a quantidade de conexões do mesmo usuário
 		currentTableRow->startSession();
+
 		std::cout << " connected." << std::endl;
 	}
 

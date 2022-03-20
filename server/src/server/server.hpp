@@ -12,14 +12,11 @@
 
 #include "../table/tableRow.hpp"
 
-//typedef std::map<std::string, TableRow*> master_table_t;
-
 class Server {
     int sockfd;
     int nextClientPort = 10000;
     std::vector<ClientSocket*> clients;
     std::vector<std::thread*> clientThreads;
-    std::map<std::string, TableRow*> masterTable;
 
     public:
         Server(int port);

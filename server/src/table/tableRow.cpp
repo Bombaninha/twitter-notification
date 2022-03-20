@@ -2,10 +2,13 @@
 #include <ctime>
 #include <chrono>
 #include <algorithm>
+#include <vector>
 
 #include "tableRow.hpp"
 
+extern pthread_mutex_t readMutex;
 extern pthread_mutex_t readAndWriteMutex;
+extern int readers;
 extern void sharedReaderLock();
 extern void sharedReaderUnlock();
 

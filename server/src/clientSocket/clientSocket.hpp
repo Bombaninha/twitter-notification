@@ -2,8 +2,10 @@
 #define CLIENT_SOCKET_H
 
 #include <string>
+#include <map>
 
 #include "command/command.hpp"
+#include "../table/tableRow.hpp"
 
 class ClientSocket {
     int sockfd;
