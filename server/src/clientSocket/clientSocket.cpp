@@ -16,7 +16,9 @@ extern int readers;
 extern void sharedReaderLock();
 extern void sharedReaderUnlock();
 
-ClientSocket::ClientSocket(int port, std::string profile) {
+extern void saveBackup();
+
+ClientSocket::ClientSocket(int port, std::string profile, struct sockaddr_in client_addr) {
     this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (this->sockfd < 0) {
@@ -45,6 +47,7 @@ ClientSocket::ClientSocket(int port, std::string profile) {
     TableRow* newTableRow = new TableRow();
 	masterTable.insert(std::make_pair(profile, newTableRow));
     this->profile = profile;
+    this->client_addr = client_addr;
 }
 
 ClientSocket::~ClientSocket() {
@@ -53,12 +56,13 @@ ClientSocket::~ClientSocket() {
 
 void ClientSocket::run() {
     char buffer[256];
-    struct sockaddr_in client_addr;
-    socklen_t client_addr_len = sizeof(struct sockaddr_in);
+    socklen_t client_addr_len = sizeof(this->client_addr);
 
     TableRow* currentRow = masterTable.find(this->profile)->second; 
 
     Command response;
+
+    bool recievedNoop = false;
 
     while(true) {
 
@@ -69,12 +73,11 @@ void ClientSocket::run() {
         */
 
         //check if theres a new tweet to read
-        if(currentRow->hasNewNotification()){
-            std::cout << "TEVE NOTIFICACAO!" << std::endl;
-            listenToNotifications(client_addr);
+        if(currentRow->hasNewNotification() && recievedNoop){
+            listenToNotifications(this->client_addr);
         } 
 
-        int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
+        int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &this->client_addr, &client_addr_len);
 
         if (recieve < 0) {
             //caiu no time out
@@ -88,6 +91,13 @@ void ClientSocket::run() {
 
         response = this->execute(command);
 
+        bzero(buffer, 256);
+
+        if (response.getType() == NO_OPERATION) {
+            recievedNoop = true;
+            continue;
+        }
+
         int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, client_addr_len);
 
         if (send < 0) {
@@ -97,7 +107,21 @@ void ClientSocket::run() {
 
         std::cout << "(Client " << profile << ") Sent: " << std::string(response) << std::endl;
 
-        bzero(buffer, 256);
+
+        if(command.getType() == COMMAND_EXIT){
+            
+            sharedReaderLock();
+            TableRow *currentTableRow;
+            currentTableRow = masterTable.find(profile)->second;
+            sharedReaderUnlock();
+
+            currentTableRow->closeSession();            
+            
+            pthread_t thread_id = pthread_self();
+            printf("Exiting socket thread: %d\n", (int)thread_id);
+            close(sockfd);
+            pthread_exit(NULL);
+        }
 
     }
 }
@@ -114,11 +138,10 @@ void ClientSocket::run() {
 Command ClientSocket::execute(Command command) {
     Command response;
 
-    TableRow* currentRow;
-
     switch(command.getType()) {
         case COMMAND_FOLLOW: {
             sharedReaderLock();
+            TableRow* currentRow = masterTable.find(this->profile)->second;
 			// check if current user exists 
             std::string newFollowingUsername = command.getData();
             bool currentUserExists = masterTable.find(this->profile) != masterTable.end();
@@ -136,7 +159,6 @@ Command ClientSocket::execute(Command command) {
                 if(!followingHimself) {
                     sharedReaderLock();
                     TableRow* followingRow = masterTable.find(newFollowingUsername)->second;
-                    currentRow = masterTable.find(this->profile)->second;
                     bool notDuplicateFollowing = !(followingRow->hasFollower(this->profile));
                     sharedReaderUnlock(); 
                     
@@ -148,6 +170,7 @@ Command ClientSocket::execute(Command command) {
 					    std::cout << this->profile + " is already following " + newFollowingUsername + "." << std::endl;
                         response = Command(COMMAND_ERROR, "You're already following " + newFollowingUsername + ".");
 				    }  
+                    saveBackup();
                 } else {
                     std::cout << this->profile + " is trying to follow himself." << std::endl;
                     response = Command(COMMAND_ERROR, "You're trying to follow yourself.");
@@ -157,32 +180,18 @@ Command ClientSocket::execute(Command command) {
                response = Command(COMMAND_ERROR, "You're trying to follow an inexistent profile");
             }
 
-            /*  
-            if(currentUserExists && newFollowingExists && !followingHimself) {
-                sharedReaderLock();
-                currentRow = masterTable.find(this->profile)->second;
-                TableRow* followingRow = masterTable.find(newFollowingUsername)->second;
-			
-                // check if currentUser does not follow newFollowing yet
-				bool notDuplicateFollowing = !(followingRow->hasFollower(this->profile));
-                sharedReaderUnlock(); 
-                
-				if(notDuplicateFollowing) {
-				    followingRow->addFollower(this->profile);
-					std::cout << this->profile + " is now following " + newFollowingUsername + "." << std::endl;
-				} else {
-					std::cout << this->profile + " is already following " + newFollowingUsername + "." << std::endl;
-				}    
-            } else {
-			    std::cout << this->profile + " is trying to follow " + newFollowingUsername + " but either user does not exist or " + this->profile + " is trying to follow himself." << std::endl;
-			}
-            */
-            //response = Command(COMMAND_FOLLOW, "Following");
+            currentRow->addNotification(this->profile, response.getData());
+
+            response = Command(NO_OPERATION, "");
+
             break;
         }
         case COMMAND_SEND:
         {
-            currentRow = masterTable.find(this->profile)->second;
+            sharedReaderLock();
+            TableRow* currentRow = masterTable.find(this->profile)->second;
+            sharedReaderUnlock(); 
+
 			std::list<std::string> followers = currentRow->getFollowers();
 
             if(followers.empty()){
@@ -200,7 +209,13 @@ Command ClientSocket::execute(Command command) {
             }
             break;
         }
-            
+        case COMMAND_EXIT: {
+            response = Command(COMMAND_SEND, "Exiting");
+            break;
+        }
+        case NO_OPERATION:
+            return Command(NO_OPERATION, "");
+
         default:
         {
             response = Command(COMMAND_ERROR, "Command not found");
@@ -221,31 +236,25 @@ void ClientSocket::listenToNotifications(struct sockaddr_in client_addr){
 		if(currentRow->activeSessions == 1){
             notification = currentRow->popNotification();
             std::cout << "NOTIFICATION: " << notification << std::endl;
-            response = Command(COMMAND_SEND, notification);
+            response = Command(COMMAND_NOTIFICATION, notification);
         } else if(currentRow->activeSessions == 2){
-            response = Command(COMMAND_SEND, "Só testando aqui");
             bool wasNotificationDelivered = currentRow->getNotificationDelivered();
 
             if(wasNotificationDelivered){
                 notification = currentRow -> popNotification();
-                response = Command(COMMAND_SEND, notification);
+                response = Command(COMMAND_NOTIFICATION, notification);
             } else {
                 currentRow->setNotificationDelivered(true);
                 notification = currentRow -> getNotification();
-                response = Command(COMMAND_SEND, notification);
+                response = Command(COMMAND_NOTIFICATION, notification);
             }       
         }
 			
 	} else{
         response = Command(COMMAND_ERROR, "XXXXXXXXX");
     }
-    std::cout << "***********************" <<std::endl;
-    std::cout << response.getType() << std::endl;
-    std::cout << response.getData() << std::endl;
-
-    std::cout << "***********************" <<std::endl;
+    
     int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, sizeof(struct sockaddr_in));
-    std::cout << "Send: " << send <<std::endl;
 
-
+    std::cout << "(Client " << profile << ") Sent: " << std::string(response) << std::endl;
 }

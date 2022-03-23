@@ -3,7 +3,7 @@
 #include <chrono>
 #include <algorithm>
 #include <vector>
-
+#include <list>
 #include "tableRow.hpp"
 
 extern pthread_mutex_t readMutex;
@@ -15,6 +15,8 @@ extern void sharedReaderUnlock();
 TableRow::TableRow() {
     this->activeSessions = 0;
     this->notificationDelivered = false;
+	this->followers = {};
+	this->messagesToReceive = {};
 }
 
 TableRow::~TableRow() {

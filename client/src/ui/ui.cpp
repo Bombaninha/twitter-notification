@@ -34,7 +34,7 @@ WINDOW* create_input() {
     return input;
 }
 
-WINDOW* create_help() {
+WINDOW* create_help(string username) {
     int termWidth, termHeight;
     getmaxyx(stdscr, termHeight, termWidth);
 
@@ -44,24 +44,26 @@ WINDOW* create_help() {
     box(help, 0, 0);
     mvwprintw(help, 0, 1, "Help");
 
-    mvwprintw(help, 1, 1, "Commands:");
-    mvwprintw(help, 2, 3, "FOLLOW @username");
-    mvwprintw(help, 3, 3, "SEND text to send");
-    mvwprintw(help, 4, 3, "EXIT to exit");
+    mvwprintw(help, 1, 1, "Logged in as: %s", username.c_str());
+
+    mvwprintw(help, 3, 1, "Commands:");
+    mvwprintw(help, 4, 3, "FOLLOW @username");
+    mvwprintw(help, 5, 3, "SEND text to send");
+    mvwprintw(help, 6, 3, "EXIT to exit");
 
     wrefresh(help);
 
     return help;
 }
 
-void initUI(WINDOW** input, WINDOW** output, WINDOW** help) {
+void initUI(WINDOW** input, WINDOW** output, WINDOW** help, string username) {
     initscr();
     cbreak();
     noecho();
 
     *input = create_input();
     *output = create_feed();
-    *help = create_help();
+    *help = create_help(username);
 }
 
 void destroyUI(WINDOW* input, WINDOW* output, WINDOW* help) {

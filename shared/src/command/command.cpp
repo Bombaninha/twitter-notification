@@ -6,10 +6,19 @@
 #define FOLLOW_STRING "FOLLOW"
 #define SEND_STRING "SEND"
 #define REDIRECT_STRING "REDIRECT"
+#define EXIT_STRING "EXIT"
 #define ERROR_STRING "ERROR"
 #define TWEET_STRING "TWEET"
+#define NOOP_STRING "NOOP"
+#define NOTIFICATION_STRING "NOTIFICATION"
 
 Command::Command(std::string command) {
+    if (command == std::string(NOOP_STRING)) {
+        this->type = NO_OPERATION;
+        this->data = "";
+        return;
+    }
+
     int splitPosition = command.find_first_of(" ");
 
     if (splitPosition == std::string::npos) {
@@ -32,6 +41,12 @@ Command::Command(std::string command) {
             this->data = command.substr(splitPosition + 1);
         } else if (command.substr(0, splitPosition) == TWEET_STRING){
             this->type = COMMAND_ERROR;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == EXIT_STRING) {
+            this->type = COMMAND_EXIT;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == NOTIFICATION_STRING) {
+            this->type = COMMAND_NOTIFICATION;
             this->data = command.substr(splitPosition + 1);
         } else {
             throw std::invalid_argument("Invalid command");
@@ -64,6 +79,15 @@ Command::operator std::string() {
             break;
         case COMMAND_ERROR:
             command = std::string(ERROR_STRING) + " " + this->data;
+            break;
+        case COMMAND_EXIT:
+            command = std::string(EXIT_STRING) + " " + this->data;
+            break;
+        case NO_OPERATION:
+            command = std::string(NOOP_STRING);
+            break;
+        case COMMAND_NOTIFICATION:
+            command = std::string(NOTIFICATION_STRING) + " " + this->data;
             break;
     }
 

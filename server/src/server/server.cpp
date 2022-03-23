@@ -1,10 +1,11 @@
 #include <iostream>
+#include <fstream>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
 #include <utility>
-
+#include <list>
 #include <map>
 
 #include "server.hpp"
@@ -15,10 +16,89 @@
 
 pthread_mutex_t readAndWriteMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t readMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int readers = 0;
 
-std::map<std::string, TableRow*> masterTable;
+void saveBackup() {
+	std::list<std::string> followers;
+	std::string username;
+	TableRow* tableRow;
+    std::string fileName = "backup_table.txt";
+	std::ofstream tableFile;
+
+	tableFile.open("backup_table.txt", std::ios::out | std::ios::trunc); 
+
+    if(tableFile.is_open()) {
+        for(auto const& row : masterTable) {
+            username = row.first;
+            tableRow = row.second;
+
+		    tableFile << username;
+		    tableFile << "/";
+
+            followers = tableRow->getFollowers();
+            for (std::string follower : followers) {
+                tableFile << follower;
+                tableFile << ",";
+            }
+
+            tableFile << "\n";
+        } 
+        tableFile.close(); 
+    } else {
+        std::cout << "ERROR opening the file" << std::endl;
+    }
+} 
+
+inline bool fileExists(const std::string& name) {
+    return (access(name.c_str(), F_OK) != -1);
+}
+
+std::map<std::string, TableRow*> loadBackup() {
+	char* line_ptr_aux;
+	char* token;
+	TableRow* tableRow;
+    std::map<std::string, TableRow*> masterTable;
+
+	if(fileExists("backup_table.txt")) {
+		std::cout << "Restaurando dados..." << std::endl;
+		fflush(stdout);
+		std::ifstream tableFile("backup_table.txt");
+
+		for(std::string line; getline(tableFile, line);) {
+			char* line_ptr = strdup(line.c_str());
+
+			tableRow = new TableRow();
+			strcpy(line_ptr, line.c_str());
+
+			token = strtok_r(line_ptr, "/", &line_ptr_aux);
+			std::string username(token);
+
+			token = strtok_r(NULL, ",", &line_ptr_aux);
+            std::cout << username << std::endl;
+			while(token != NULL) {
+				std::string follower(token);
+                if(username != follower) {
+				    tableRow->addFollower(follower);
+                }
+				token = strtok_r(NULL, ",", &line_ptr_aux);
+			}
+
+			pthread_mutex_lock(&readAndWriteMutex);
+			masterTable.insert(std::make_pair(username, tableRow));
+			pthread_mutex_unlock(&readAndWriteMutex);
+		}
+		tableFile.close(); 
+	} else {
+		printf("Backup table not found. Creating new. \n");
+		fflush(stdout);
+	}
+
+	return masterTable;
+}
+
+std::map<std::string, TableRow*> masterTable = loadBackup(); 
 
 void sharedReaderLock() {
 	pthread_mutex_lock(&readMutex);
@@ -88,7 +168,7 @@ void Server::serverLoop() {
 
         Command command = Command(std::string(buffer));
 
-        Command response = this->execute(command);
+        Command response = this->execute(command, client_addr);
 
         int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, client_addr_len);
 
@@ -109,39 +189,66 @@ std::thread Server::run() {
     return server_thread;
 }
 
-Command Server::execute(Command command) {
+Command Server::execute(Command command, struct sockaddr_in client_addr) {
     Command response;
 
     switch(command.getType()) {
         case COMMAND_CONNECT:
-            this->createClientSocket(this->nextClientPort, command.getData());
-            response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
-            this->nextClientPort++;
+            {
+            // Se já existe 2 active sessions
+                sharedReaderLock();
+                bool usernameDoesNotExist = masterTable.find(command.getData()) == masterTable.end();
+                sharedReaderUnlock();
+
+                if(usernameDoesNotExist) {
+                    pthread_mutex_lock(&readAndWriteMutex);
+                    TableRow* newTableRow = new TableRow();
+                    masterTable.insert(std::make_pair(command.getData(), newTableRow));	
+                    pthread_mutex_unlock(&readAndWriteMutex);
+                    saveBackup();
+
+                    this->createClientSocket(this->nextClientPort, command.getData(), client_addr);
+                    response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
+                    pthread_mutex_lock(&mutex);
+                    this->nextClientPort++;
+                    pthread_mutex_unlock(&mutex);
+                } else {
+                    sharedReaderLock();
+                    TableRow *currentTableRow;
+                    currentTableRow = masterTable.find(command.getData())->second;
+
+                    int currentRowActiveSessions = currentTableRow->getActiveSessions();
+
+                    sharedReaderUnlock();
+
+                    if (currentRowActiveSessions >= MAX_CONNECTIONS_OF_SAME_USER){
+                        response = Command(COMMAND_ERROR, "\n denied: there are already 2 active sessions!\n" );
+                    } else {
+                        this->createClientSocket(this->nextClientPort, command.getData(), client_addr);
+                        response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
+                        pthread_mutex_lock(&mutex);
+                        this->nextClientPort++;
+                        pthread_mutex_unlock(&mutex);
+                    }
+                }
             break;
+            }
         case COMMAND_FOLLOW:
+        {
             response = Command(COMMAND_FOLLOW, "Following");
             break;
+        }
         case COMMAND_SEND:
+        {
             response = Command(COMMAND_SEND, "Sending");
-            break;
-    }
-
+            break;    
+        }
+    }   
     return response;
 }
 
-void Server::createClientSocket(int port, std::string profile) {
-    ClientSocket *clientSocket = new ClientSocket(port, profile);
-
-    sharedReaderLock();
-    bool usernameDoesNotExist = masterTable.find(profile) == masterTable.end();
-    sharedReaderUnlock();
-
-    if(usernameDoesNotExist) {
-        pthread_mutex_lock(&readAndWriteMutex);
-        TableRow* newTableRow;
-		masterTable.insert(std::make_pair(profile, newTableRow));	
-        pthread_mutex_unlock(&readAndWriteMutex);
-    } 
+void Server::createClientSocket(int port, std::string profile, struct sockaddr_in client_addr) {
+    ClientSocket *clientSocket = new ClientSocket(port, profile, client_addr);
     
     std::cout << "User " + profile + " is connecting...";
 
@@ -150,17 +257,10 @@ void Server::createClientSocket(int port, std::string profile) {
 	currentTableRow = masterTable.find(profile)->second;
 	sharedReaderUnlock();
 
-    int currentRowActiveSessions = currentTableRow->getActiveSessions();
+    // aumenta em um a quantidade de conexões do mesmo usuário
+	currentTableRow->startSession();
 
-    if (currentRowActiveSessions >= MAX_CONNECTIONS_OF_SAME_USER) {
-        std::cout << "\n denied: there are already 2 active sessions!\n" << std::endl;
-		// fechar conexao
-	} else {
-        // aumenta em um a quantidade de conexões do mesmo usuário
-		currentTableRow->startSession();
-
-		std::cout << " connected." << std::endl;
-	}
+	std::cout << " connected." << std::endl;
 
     std::thread* client_thread = new std::thread([clientSocket]() {
         clientSocket->run();

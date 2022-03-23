@@ -18,6 +18,16 @@ int main(int argc, char** argv) {
     string serverAddress = argv[2];
     int serverPort = stoi(argv[3]);
 
+    if (profile.length() < 4) {
+        cout << "Profile name must be at least 4 characters long" << endl;
+        return 1;
+    }
+
+    if (profile.length() > 20) {
+        cout << "Profile name must be at most 20 characters long" << endl;
+        return 1;
+    }
+
     Client client(profile, serverAddress, serverPort);
 
     client.run();

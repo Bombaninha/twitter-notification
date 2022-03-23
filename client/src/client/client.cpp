@@ -62,23 +62,30 @@ void Client::connectToServer() {
     } while(serverResponse == ""); 
 
 
-    Command responseCommand(serverResponse);
+    if (serverResponse.substr(0, 8) == "REDIRECT") {
+        Command responseCommand(serverResponse);
 
-    if (responseCommand.getType() == COMMAND_REDIRECT) {
         delete serverConnection;
         this->serverConnection = new Connection(serverAddress, stoi(responseCommand.getData()));
+
+        Command noOp(NO_OPERATION, "");
+        serverConnection->sendCommand(noOp);
 
         response = "Connected to server";
         responses.push(response);
     } else {
         response = "Could not connect to server";
         responses.push(response);
+        running = false;
+        pthread_t thread_id = pthread_self();
+        printf("Exiting socket and thread: %d\n", (int)thread_id);
+        pthread_exit(NULL);
     }
 }
 
 void Client::handleServer() {
     connectToServer();
-    
+
 
     while(running) {
         if (commands.size() > 0) {
@@ -91,14 +98,30 @@ void Client::handleServer() {
             }
 
             if (strcasecmp(command.substr(0, 4).c_str(), "send") == 0) {
-                Command sendCommand(COMMAND_SEND, command.substr(5));
-                serverConnection->sendCommand(sendCommand);
+                if (command.substr(5).length() > 128) {
+                    responses.push("Message too long");                    
+                } else {
+                    Command sendCommand(COMMAND_SEND, command.substr(5));
+                    serverConnection->sendCommand(sendCommand);
+                }
+            }
+            if (strcasecmp(command.substr(0, 4).c_str(), "exit") == 0) {
+                Command exitCommand(COMMAND_EXIT, command.substr(4));
+                serverConnection->sendCommand(exitCommand);
+                running = false;
             }
         }
         //listen even when there are no commands to be sent
         std::string responseFromServer = serverConnection->listenToServer();
-        if (responseFromServer != "")
-            responses.push(responseFromServer);
+        if (responseFromServer != "") {
+            Command recieved = Command(responseFromServer);
+
+            if (recieved.getType() == COMMAND_ERROR) {
+                responses.push(responseFromServer);
+            } else {
+                responses.push(recieved.getData());
+            }
+        }
     }
 }
 
@@ -108,7 +131,7 @@ void Client::handleUI() {
 
     WINDOW *input, *output, *help;
 
-    initUI(&input, &output, &help);
+    initUI(&input, &output, &help, this->profile);
 
     int maxContent = getmaxy(output) - 2;
 
@@ -133,7 +156,7 @@ void Client::handleUI() {
 
             if (c == '\n') {
                 if (strcasecmp(userInput.c_str(), "exit") == 0) {
-                    running = false;
+                    commands.push(userInput);
                     continue;
                 }
 

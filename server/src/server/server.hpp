@@ -5,6 +5,7 @@
 #include <thread>
 #include <vector>
 #include <map>
+#include <sys/socket.h>
 
 #include "command/command.hpp"
 
@@ -25,8 +26,8 @@ class Server {
 
     private:
         void serverLoop();
-        Command execute(Command command);
-        void createClientSocket(int port, std::string profile);
+        Command execute(Command command, struct sockaddr_in client_addr);
+        void createClientSocket(int port, std::string profile, struct sockaddr_in client_addr);
 };
 
 #endif

@@ -4,7 +4,7 @@
 #include <ncurses.h>
 #include <string>
 
-void initUI(WINDOW** input, WINDOW** output, WINDOW** help);
+void initUI(WINDOW** input, WINDOW** output, WINDOW** help, std::string username);
 void destroyUI(WINDOW* input, WINDOW* output, WINDOW* help);
 void clearInput(std::string* userInput, WINDOW* input);
 int kbhit();
