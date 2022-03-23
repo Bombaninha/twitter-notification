@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h>
 #include <map>
 
 #include "../table/tableRow.hpp"
@@ -29,6 +30,14 @@ ClientSocket::ClientSocket(int port, std::string profile) {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     bzero(&(server_addr.sin_zero), 8);
 
+    // TIMEOUT
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
+        perror("Error");
+    }
+
     if (bind(this->sockfd, (struct sockaddr *) &server_addr, sizeof(struct sockaddr)) < 0) {
         throw std::runtime_error("Could not bind socket");
     }
@@ -47,23 +56,37 @@ void ClientSocket::run() {
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
 
+    TableRow* currentRow = masterTable.find(this->profile)->second; 
+
+    Command response;
+
     while(true) {
+
+        /*
         for (auto row : masterTable) {
             std::cout << row.first << std::endl;
         }
+        */
+
+        //check if theres a new tweet to read
+        if(currentRow->hasNewNotification()){
+            std::cout << "TEVE NOTIFICACAO!" << std::endl;
+            listenToNotifications(client_addr);
+        } 
 
         int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
 
         if (recieve < 0) {
-            std::cout << "Error recieving data" << std::endl;
+            //caiu no time out
+            //std::cout << "Error recieving data" << std::endl;
             continue;
-        }
-
+        } 
+            
         std::cout << "(Client " << profile << ") Recieved: " << buffer << std::endl;
 
         Command command = Command(std::string(buffer));
 
-        Command response = this->execute(command);
+        response = this->execute(command);
 
         int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, client_addr_len);
 
@@ -75,6 +98,7 @@ void ClientSocket::run() {
         std::cout << "(Client " << profile << ") Sent: " << std::string(response) << std::endl;
 
         bzero(buffer, 256);
+
     }
 }
 
@@ -126,7 +150,7 @@ Command ClientSocket::execute(Command command) {
 				    }  
                 } else {
                     std::cout << this->profile + " is trying to follow himself." << std::endl;
-                    response = Command(COMMAND_ERROR, "You're trying to follow himself.");
+                    response = Command(COMMAND_ERROR, "You're trying to follow yourself.");
                 }
             } else {
                std::cout << this->profile + " is trying to follow an inexistent profile" << std::endl; 
@@ -157,11 +181,71 @@ Command ClientSocket::execute(Command command) {
             break;
         }
         case COMMAND_SEND:
-            response = Command(COMMAND_SEND, "Sending");
+        {
+            currentRow = masterTable.find(this->profile)->second;
+			std::list<std::string> followers = currentRow->getFollowers();
+
+            if(followers.empty()){
+                response = Command(COMMAND_ERROR, "You have no followers!");
+            } else {
+                std::cout << "tamo aqui no teste" << std::endl;
+                std::string message = command.getData();
+                //coloca na lista de msg_to_receive de todos segudores
+                for (std::string follower : followers){
+                    std::cout << "achou um follower pelo menos!" << std::endl;
+                    TableRow* followerRow = masterTable.find(follower)->second;
+                    followerRow->addNotification(this->profile, message); 
+                } 
+                response = Command(COMMAND_SEND, "Your message has been sent to your followers.");    
+            }
             break;
+        }
+            
         default:
+        {
             response = Command(COMMAND_ERROR, "Command not found");
+            break;
+        }
     }
 
     return response;
+}
+
+void ClientSocket::listenToNotifications(struct sockaddr_in client_addr){
+
+    std::string notification;
+    Command response;
+	TableRow* currentRow = masterTable.find(this->profile)->second;
+    if (!(currentRow->messagesToReceive.empty())){
+		//se 1 sessao ativa, pode ler e remover da lista de msg_to_receive
+		if(currentRow->activeSessions == 1){
+            notification = currentRow->popNotification();
+            std::cout << "NOTIFICATION: " << notification << std::endl;
+            response = Command(COMMAND_SEND, notification);
+        } else if(currentRow->activeSessions == 2){
+            response = Command(COMMAND_SEND, "Só testando aqui");
+            bool wasNotificationDelivered = currentRow->getNotificationDelivered();
+
+            if(wasNotificationDelivered){
+                notification = currentRow -> popNotification();
+                response = Command(COMMAND_SEND, notification);
+            } else {
+                currentRow->setNotificationDelivered(true);
+                notification = currentRow -> getNotification();
+                response = Command(COMMAND_SEND, notification);
+            }       
+        }
+			
+	} else{
+        response = Command(COMMAND_ERROR, "XXXXXXXXX");
+    }
+    std::cout << "***********************" <<std::endl;
+    std::cout << response.getType() << std::endl;
+    std::cout << response.getData() << std::endl;
+
+    std::cout << "***********************" <<std::endl;
+    int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, sizeof(struct sockaddr_in));
+    std::cout << "Send: " << send <<std::endl;
+
+
 }

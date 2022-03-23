@@ -9,7 +9,8 @@ class Connection {
     public:
         Connection(std::string serverHost, int serverPort);
         ~Connection();
-        Command sendCommand(Command command);
+        void sendCommand(Command command);
+        std::string listenToServer();
     private:
         int sockfd;
         struct sockaddr_in serverConnProps;

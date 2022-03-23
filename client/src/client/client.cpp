@@ -5,6 +5,8 @@
 #include <iostream>
 #include <sys/socket.h>
 #include <string.h>
+#include <sys/time.h>
+
 
 #include <command/command.hpp>
 
@@ -40,7 +42,27 @@ void Client::connectToServer() {
 
     Command connectCommand(COMMAND_CONNECT, this->profile);
 
-    Command responseCommand = serverConnection->sendCommand(connectCommand);
+    serverConnection->sendCommand(connectCommand);
+
+    std::string serverResponse = "";
+
+
+    const clock_t begin_time = clock();
+    do {
+        //check if time limit is reached
+        if((float( clock () - begin_time ) /  CLOCKS_PER_SEC) >= 1 ){
+            break;
+        }
+
+        serverResponse = serverConnection->listenToServer();
+        
+        if (serverResponse != "")
+            responses.push(serverResponse);
+
+    } while(serverResponse == ""); 
+
+
+    Command responseCommand(serverResponse);
 
     if (responseCommand.getType() == COMMAND_REDIRECT) {
         delete serverConnection;
@@ -56,6 +78,7 @@ void Client::connectToServer() {
 
 void Client::handleServer() {
     connectToServer();
+    
 
     while(running) {
         if (commands.size() > 0) {
@@ -64,16 +87,18 @@ void Client::handleServer() {
 
             if (strcasecmp(command.substr(0, 6).c_str(), "follow") == 0) {
                 Command followCommand(COMMAND_FOLLOW, command.substr(7));
-                Command responseCommand = serverConnection->sendCommand(followCommand);
-                responses.push(std::string(responseCommand));
+                serverConnection->sendCommand(followCommand);
             }
 
             if (strcasecmp(command.substr(0, 4).c_str(), "send") == 0) {
                 Command sendCommand(COMMAND_SEND, command.substr(5));
-                Command responseCommand = serverConnection->sendCommand(sendCommand);
-                responses.push(std::string(responseCommand));
+                serverConnection->sendCommand(sendCommand);
             }
         }
+        //listen even when there are no commands to be sent
+        std::string responseFromServer = serverConnection->listenToServer();
+        if (responseFromServer != "")
+            responses.push(responseFromServer);
     }
 }
 

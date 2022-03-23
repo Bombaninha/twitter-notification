@@ -92,13 +92,16 @@ void TableRow::addNotification(std::string username, std::string message) {
 	pthread_mutex_lock(&readAndWriteMutex);
 
 	auto now = std::chrono::system_clock::now();
-	std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+	//std::time_t now_time = std::chrono::system_clock::to_time_t(now);
 	
-	std::string payload = std::string(std::ctime(&now_time)) + " @" + username + ": " + message;
+	//std::string payload = std::string(std::ctime(&now_time)) + " @" + username + ": " + message;
+	std::string payload = "@" + username + ": " + message;
 
-	std::cout << std::string(std::ctime(&now_time)) + " @" + username + ": " + message << std::endl;
+
+	//std::cout << std::string(std::ctime(&now_time)) + " @" + username + ": " + message << std::endl;
 
 	this->messagesToReceive.push_back(payload);
+
 	pthread_mutex_unlock(&readAndWriteMutex);
 }
 

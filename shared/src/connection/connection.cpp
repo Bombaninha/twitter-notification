@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 Connection::Connection(std::string serverHost, int serverPort) {
     struct hostent* host = gethostbyname(serverHost.c_str());
@@ -14,6 +15,13 @@ Connection::Connection(std::string serverHost, int serverPort) {
     }
 
     this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    // TIMEOUT
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
+    if (setsockopt(this->sockfd, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
+        perror("Error");
+    }
 
     if (this->sockfd < 0) {
         throw std::runtime_error("Could not create socket");
@@ -30,7 +38,7 @@ Connection::~Connection() {
     close(this->sockfd);
 }
 
-Command Connection::sendCommand(Command command) {
+void Connection::sendCommand(Command command) {
     int n = sendto(
         this->sockfd,
         std::string(command).c_str(),
@@ -40,9 +48,12 @@ Command Connection::sendCommand(Command command) {
         sizeof(serverConnProps));
 
     if (n < 0) {
-        return Command(COMMAND_ERROR, "Could not send command");
+        //return Command(COMMAND_ERROR, "Could not send command");
+        std::cout << "Could not send command" << std::endl;
     }
+}
 
+std::string Connection::listenToServer() {
     char buffer[256];
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
@@ -52,8 +63,8 @@ Command Connection::sendCommand(Command command) {
     int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
 
     if (recieve < 0) {
-        return Command(COMMAND_ERROR, "Could not recieve response");
+        return "";
     }
 
-    return Command(std::string(buffer));
+    return std::string(buffer);
 }

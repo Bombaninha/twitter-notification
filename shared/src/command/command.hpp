@@ -8,7 +8,9 @@ enum CommandType {
     COMMAND_FOLLOW,
     COMMAND_SEND,
     COMMAND_REDIRECT,
-    COMMAND_ERROR
+    COMMAND_ERROR,
+    COMMAND_FETCH_NOTIFICATION,
+    NO_OPERATION
 };
 
 class Command {

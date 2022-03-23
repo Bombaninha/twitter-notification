@@ -7,6 +7,7 @@
 #define SEND_STRING "SEND"
 #define REDIRECT_STRING "REDIRECT"
 #define ERROR_STRING "ERROR"
+#define TWEET_STRING "TWEET"
 
 Command::Command(std::string command) {
     int splitPosition = command.find_first_of(" ");
@@ -27,6 +28,9 @@ Command::Command(std::string command) {
             this->type = COMMAND_REDIRECT;
             this->data = command.substr(splitPosition + 1);
         } else if (command.substr(0, splitPosition) == ERROR_STRING) {
+            this->type = COMMAND_ERROR;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == TWEET_STRING){
             this->type = COMMAND_ERROR;
             this->data = command.substr(splitPosition + 1);
         } else {

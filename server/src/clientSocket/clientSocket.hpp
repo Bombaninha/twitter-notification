@@ -16,6 +16,7 @@ class ClientSocket {
         ClientSocket(int port, std::string profile);
         ~ClientSocket();
         void run();
+        void listenToNotifications(struct sockaddr_in client_addr);
 
     private:
         Command execute(Command command);
