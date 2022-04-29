@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.16)
 project(Server CXX)
 
 add_executable(server src/main.cpp src/server/server.cpp src/clientSocket/clientSocket.cpp src/table/tableRow.cpp)

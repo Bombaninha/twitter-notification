@@ -56,7 +56,9 @@
         "list": "cpp",
         "map": "cpp",
         "optional": "cpp",
-        "fstream": "cpp"
+        "fstream": "cpp",
+        "set": "cpp",
+        "unordered_set": "cpp"
     },
     "cmake.configureOnOpen": true
 }

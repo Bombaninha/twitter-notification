@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.16)
 project(Client CXX)
 
 add_executable(client src/main.cpp src/ui/ui.cpp src/client/client.cpp)

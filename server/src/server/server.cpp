@@ -10,6 +10,8 @@
 
 #include "server.hpp"
 
+#include "command/command.hpp"
+
 #include "../table/tableRow.hpp"
 
 #define MAX_CONNECTIONS_OF_SAME_USER 2
@@ -17,6 +19,8 @@
 pthread_mutex_t readAndWriteMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t readMutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+std::map<std::string, TableRow*> masterTable; 
 
 int readers = 0;
 
@@ -98,8 +102,6 @@ std::map<std::string, TableRow*> loadBackup() {
 	return masterTable;
 }
 
-std::map<std::string, TableRow*> masterTable = loadBackup(); 
-
 void sharedReaderLock() {
 	pthread_mutex_lock(&readMutex);
 	readers++;
@@ -119,6 +121,13 @@ void sharedReaderUnlock(){
 Server::Server(int port) {
     this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
+    if (setsockopt(this->sockfd, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
+        perror("Error");
+    }
+
     if (this->sockfd < 0) {
         throw std::runtime_error("Could not create socket");
     }
@@ -133,6 +142,48 @@ Server::Server(int port) {
     if (bind(this->sockfd, (struct sockaddr *) &server_addr, sizeof(struct sockaddr)) < 0) {
         throw std::runtime_error("Could not bind socket");
     }
+
+    masterTable = loadBackup();
+}
+
+Server::Server(int port, std::string primaryHost, int primaryPort) {
+    this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (this->sockfd < 0) {
+        throw std::runtime_error("Could not create socket");
+    }
+
+    struct sockaddr_in server_addr;
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    bzero(&(server_addr.sin_zero), 8);
+
+    if (bind(this->sockfd, (struct sockaddr *) &server_addr, sizeof(struct sockaddr)) < 0) {
+        throw std::runtime_error("Could not bind socket");
+    }
+
+    masterTable = loadBackup();
+
+    this->primaryPort = primaryPort;
+    this->primaryConnection = new Connection(primaryHost, primaryPort);
+
+    int pid = getpid();
+
+    char hostname[50];
+
+    int n = gethostname(hostname, 50);
+
+    if (n < 0) {
+        throw std::runtime_error("Could not get hostname");
+    }
+
+    Command aliveComand(COMMAND_ALIVE, std::string(hostname) + ":" + std::to_string(port) + "," + std::to_string(pid));
+    this->primaryConnection->sendCommand(aliveComand);
+
+    std::string response = this->primaryConnection->listenToServer();
+    std::cout << response << std::endl;
 }
 
 Server::~Server() {
@@ -151,22 +202,46 @@ Server::~Server() {
     close(this->sockfd);
 }
 
+void Server::setPrimary() {
+    this->isPrimary = true;
+}
+
 void Server::serverLoop() {
     char buffer[256];
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
 
     while(true) {
+        while (!this->isPrimary) {
+            Command ticCommand(COMMAND_TIC, "");
+
+            this->primaryConnection->sendCommand(ticCommand);
+
+            std::string responseString = this->primaryConnection->listenToServer();
+
+            if (responseString.empty()) {
+                std::cout << "Primário morto" << std::endl;
+            }
+            
+            sleep(1);
+        }
+
+        bzero(buffer, 256);
+
         int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
 
         if (recieve < 0) {
-            std::cout << "Error recieving data" << std::endl;
+            // std::cout << "Error recieving data" << std::endl;
             continue;
         }
 
         std::cout << "Recieved: " << buffer << std::endl;
 
         Command command = Command(std::string(buffer));
+
+        if (command.getType() == NO_OPERATION) {
+            continue;
+        }
 
         Command response = this->execute(command, client_addr);
 
@@ -242,6 +317,91 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
         {
             response = Command(COMMAND_SEND, "Sending");
             break;    
+        }
+        case COMMAND_ALIVE:
+        {
+            std::string data = command.getData();
+
+            std::string hostname = data.substr(0, data.find(":"));
+            auto temp = data.substr(data.find(":") + 1);
+            std::string port = temp.substr(0, temp.find(","));
+            std::string pid = temp.substr(temp.find(",") + 1);
+
+            Command newBackup(COMMAND_BACKUP, data);
+
+            for (auto backup : this->backupServers) {
+                struct sockaddr_in backupAddress;
+
+                struct hostent* host = gethostbyname(std::get<1>(backup).c_str());
+
+                if (host == NULL) {
+                    throw std::runtime_error("Could not resolve hostname");
+                    exit(EXIT_FAILURE);
+                }
+
+                backupAddress.sin_family = AF_INET;
+                backupAddress.sin_port = htons(std::get<2>(backup));
+                backupAddress.sin_addr = *((struct in_addr*) host->h_addr);
+                bzero(&(backupAddress.sin_zero), 8);
+
+                int n = sendto(
+                    this->sockfd,
+                    std::string(newBackup).c_str(),
+                    std::string(newBackup).length(),
+                    0,
+                    (struct sockaddr*) &backupAddress,
+                    sizeof(backupAddress));
+
+                if (n < 0) {
+                    //return Command(COMMAND_ERROR, "Could not send command");
+                    std::cout << "Could not send command to backup" << std::endl;
+                }
+            }
+
+            for (auto backup : this->backupServers) {
+                auto pid = std::get<0>(backup);
+                auto hostname = std::get<1>(backup);
+                auto port = std::get<2>(backup);
+
+                Command existingBackup(COMMAND_BACKUP, hostname + ":" + std::to_string(port) + "," + std::to_string(pid));
+
+                struct sockaddr_in backupAddress;
+
+                int n = sendto(
+                    this->sockfd,
+                    std::string(existingBackup).c_str(),
+                    std::string(existingBackup).length(),
+                    0,
+                    (struct sockaddr*) &client_addr,
+                    sizeof(client_addr));
+
+                if (n < 0) {
+                    //return Command(COMMAND_ERROR, "Could not send command");
+                    std::cout << "Could not send command to backup" << std::endl;
+                }
+            }
+
+            this->backupServers.push_back(std::make_tuple(atoi(pid.c_str()), hostname, atoi(port.c_str())));
+
+            response = Command(COMMAND_ALIVE, "Alive");
+            break;
+        }
+        case COMMAND_BACKUP: {
+            std::string data = command.getData();
+
+            std::string hostname = data.substr(0, data.find(":"));
+            auto temp = data.substr(data.find(":") + 1);
+            std::string port = temp.substr(0, temp.find(","));
+            std::string pid = temp.substr(temp.find(",") + 1);
+
+            this->backupServers.push_back(std::make_tuple(atoi(pid.c_str()), hostname, atoi(port.c_str())));
+
+            response = Command(NO_OPERATION, "");
+            break;
+        }
+        case COMMAND_TIC: {
+            response = Command(COMMAND_TOC, "");
+            break;
         }
     }   
     return response;

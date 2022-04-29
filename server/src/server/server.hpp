@@ -6,8 +6,11 @@
 #include <vector>
 #include <map>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <tuple>
 
 #include "command/command.hpp"
+#include "connection/connection.hpp"
 
 #include "../clientSocket/clientSocket.hpp"
 
@@ -18,10 +21,16 @@ class Server {
     int nextClientPort = 10000;
     std::vector<ClientSocket*> clients;
     std::vector<std::thread*> clientThreads;
+    bool isPrimary = false;
+    int primaryPort = 0;
+    Connection *primaryConnection;
+    std::vector<std::tuple<int,std::string,int>> backupServers;
 
     public:
         Server(int port);
+        Server(int port, std::string primaryHost, int primaryPort);
         ~Server();
+        void setPrimary();
         std::thread run();
 
     private:

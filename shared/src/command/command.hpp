@@ -11,7 +11,11 @@ enum CommandType {
     COMMAND_ERROR,
     COMMAND_EXIT,
     COMMAND_NOTIFICATION,
-    NO_OPERATION
+    NO_OPERATION,
+    COMMAND_ALIVE,
+    COMMAND_BACKUP,
+    COMMAND_TIC,
+    COMMAND_TOC
 };
 
 class Command {

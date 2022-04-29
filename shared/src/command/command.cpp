@@ -11,6 +11,10 @@
 #define TWEET_STRING "TWEET"
 #define NOOP_STRING "NOOP"
 #define NOTIFICATION_STRING "NOTIFICATION"
+#define ALIVE_STRING "ALIVE"
+#define BACKUP_STRING "BACKUP"
+#define TIC_STRING "TIC"
+#define TOC_STRING "TOC"
 
 Command::Command(std::string command) {
     if (command == std::string(NOOP_STRING)) {
@@ -22,7 +26,15 @@ Command::Command(std::string command) {
     int splitPosition = command.find_first_of(" ");
 
     if (splitPosition == std::string::npos) {
-        throw std::invalid_argument("Invalid command");
+        if (command == TIC_STRING) {
+            this->type = COMMAND_TIC;
+        } else if (command == TOC_STRING) {
+            this->type = COMMAND_TOC;
+        } else if (command == NOOP_STRING) {
+            this->type = NO_OPERATION;
+        } else {
+            throw std::invalid_argument("Invalid command");
+        }
     } else {
         if (command.substr(0, splitPosition) == CONNECT_STRING) {
             this->type = COMMAND_CONNECT;
@@ -48,6 +60,18 @@ Command::Command(std::string command) {
         } else if (command.substr(0, splitPosition) == NOTIFICATION_STRING) {
             this->type = COMMAND_NOTIFICATION;
             this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == ALIVE_STRING) {
+            this->type = COMMAND_ALIVE;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == BACKUP_STRING) {
+            this->type = COMMAND_BACKUP;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == TIC_STRING) {
+            this->type = COMMAND_TIC;
+        } else if (command.substr(0, splitPosition) == TOC_STRING) {
+            this->type = COMMAND_TOC;
+        } else if (command.substr(0, splitPosition) == NOOP_STRING) {
+            this->type = NO_OPERATION;
         } else {
             throw std::invalid_argument("Invalid command");
         }
@@ -88,6 +112,18 @@ Command::operator std::string() {
             break;
         case COMMAND_NOTIFICATION:
             command = std::string(NOTIFICATION_STRING) + " " + this->data;
+            break;
+        case COMMAND_ALIVE:
+            command = std::string(ALIVE_STRING) + " " + this->data;
+            break;
+        case COMMAND_BACKUP:
+            command = std::string(BACKUP_STRING) + " " + this->data;
+            break;
+        case COMMAND_TIC:
+            command = std::string(TIC_STRING);
+            break;
+        case COMMAND_TOC:
+            command = std::string(TOC_STRING);
             break;
     }
 
