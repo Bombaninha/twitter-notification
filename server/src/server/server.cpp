@@ -7,6 +7,7 @@
 #include <utility>
 #include <list>
 #include <map>
+#include <ctime>
 
 #include "server.hpp"
 
@@ -149,6 +150,14 @@ Server::Server(int port) {
 Server::Server(int port, std::string primaryHost, int primaryPort) {
     this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
+    if (setsockopt(this->sockfd, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
+        perror("Error");
+    }
+
+
     if (this->sockfd < 0) {
         throw std::runtime_error("Could not create socket");
     }
@@ -182,8 +191,26 @@ Server::Server(int port, std::string primaryHost, int primaryPort) {
     Command aliveComand(COMMAND_ALIVE, std::string(hostname) + ":" + std::to_string(port) + "," + std::to_string(pid));
     this->primaryConnection->sendCommand(aliveComand);
 
-    std::string response = this->primaryConnection->listenToServer();
-    std::cout << response << std::endl;
+    auto response = this->primaryConnection->listenToServer();
+
+    while (response != "") {
+        std::cout << "Recieved: " << response << std::endl;
+
+        Command command(response);
+        
+        if (command.getType() == COMMAND_BACKUP) {
+            std::string data = command.getData();
+
+            std::string hostname = data.substr(0, data.find(":"));
+            auto temp = data.substr(data.find(":") + 1);
+            std::string port = temp.substr(0, temp.find(","));
+            std::string pid = temp.substr(temp.find(",") + 1);
+
+            this->backupServers.push_back(std::make_tuple(atoi(pid.c_str()), hostname, atoi(port.c_str())));
+        }
+
+        response = this->primaryConnection->listenToServer();
+    }
 }
 
 Server::~Server() {
@@ -211,19 +238,55 @@ void Server::serverLoop() {
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
 
+    std::time_t lastTime = std::time(nullptr);
+
     while(true) {
         while (!this->isPrimary) {
-            Command ticCommand(COMMAND_TIC, "");
+            if (std::time(nullptr) - lastTime > 3) {
+                Command ticCommand(COMMAND_TIC, "");
 
-            this->primaryConnection->sendCommand(ticCommand);
+                this->primaryConnection->sendCommand(ticCommand);
 
-            std::string responseString = this->primaryConnection->listenToServer();
+                std::string responseString = this->primaryConnection->listenToServer();
 
-            if (responseString.empty()) {
-                std::cout << "Primário morto" << std::endl;
+                if (responseString.empty()) {
+                    std::cout << "Primário morto" << std::endl;
+                    continue;
+                }
+
+                Command responseCommand(responseString);
+
+                lastTime = std::time(nullptr);
             }
-            
-            sleep(1);
+
+            bzero(buffer, 256);
+
+            int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
+
+            if (recieve > 0) {
+                if (std::string(buffer) != "TOC") {
+                    std::cout << "Recieved: " << buffer << std::endl;
+                }
+
+                Command command = Command(std::string(buffer));
+
+                if (command.getType() == NO_OPERATION) {
+                    continue;
+                }
+
+                Command response = this->execute(command, client_addr);
+
+                int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, client_addr_len);
+
+                if (send < 0) {
+                    std::cout << "Error sending data" << std::endl;
+                    continue;
+                }
+
+                if (std::string(buffer) != "TIC") {
+                    std::cout << "Sent: " << std::string(response) << std::endl;
+                }
+            }
         }
 
         bzero(buffer, 256);
@@ -235,7 +298,9 @@ void Server::serverLoop() {
             continue;
         }
 
-        std::cout << "Recieved: " << buffer << std::endl;
+        if (std::string(buffer) != "TIC") {
+            std::cout << "Recieved: " << buffer << std::endl;
+        }
 
         Command command = Command(std::string(buffer));
 
@@ -252,7 +317,9 @@ void Server::serverLoop() {
             continue;
         }
 
-        std::cout << "Sent: " << std::string(response) << std::endl;
+        if (std::string(buffer) != "TIC") {
+            std::cout << "Sent: " << std::string(response) << std::endl;
+        }
 
         bzero(buffer, 256);
     }
@@ -330,32 +397,9 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             Command newBackup(COMMAND_BACKUP, data);
 
             for (auto backup : this->backupServers) {
-                struct sockaddr_in backupAddress;
+                Connection connection(std::get<1>(backup), std::get<2>(backup));
 
-                struct hostent* host = gethostbyname(std::get<1>(backup).c_str());
-
-                if (host == NULL) {
-                    throw std::runtime_error("Could not resolve hostname");
-                    exit(EXIT_FAILURE);
-                }
-
-                backupAddress.sin_family = AF_INET;
-                backupAddress.sin_port = htons(std::get<2>(backup));
-                backupAddress.sin_addr = *((struct in_addr*) host->h_addr);
-                bzero(&(backupAddress.sin_zero), 8);
-
-                int n = sendto(
-                    this->sockfd,
-                    std::string(newBackup).c_str(),
-                    std::string(newBackup).length(),
-                    0,
-                    (struct sockaddr*) &backupAddress,
-                    sizeof(backupAddress));
-
-                if (n < 0) {
-                    //return Command(COMMAND_ERROR, "Could not send command");
-                    std::cout << "Could not send command to backup" << std::endl;
-                }
+                connection.sendCommand(newBackup);
             }
 
             for (auto backup : this->backupServers) {
@@ -374,6 +418,8 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
                     0,
                     (struct sockaddr*) &client_addr,
                     sizeof(client_addr));
+
+                std::cout << "Sent: " << std::string(existingBackup) << std::endl;
 
                 if (n < 0) {
                     //return Command(COMMAND_ERROR, "Could not send command");
