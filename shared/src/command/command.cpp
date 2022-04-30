@@ -18,9 +18,9 @@
 #define ELECTION_STRING "ELECTION"
 #define COORDINATOR_STRING "COORDINATOR"
 #define ANSWER_STRING "ANSWER"
-#define REPLICATE_STRING "REPLICATE"
 #define REPLICATE_CONNECT_STRING "REPLICATE_CONNECT"
 #define REPLICATE_DISCONNECT_STRING "REPLICATE_DISCONNECT"
+#define REPLICATE_FOLLOW_STRING "REPLICATE_FOLLOW"
 
 Command::Command(std::string command) {
     if (command == std::string(NOOP_STRING)) {
@@ -86,14 +86,14 @@ Command::Command(std::string command) {
             this->data = command.substr(splitPosition + 1);
         } else if (command.substr(0, splitPosition) == ANSWER_STRING) {
             this->type = COMMAND_ANSWER;
-        } else if (command.substr(0, splitPosition) == REPLICATE_STRING) {
-            this->type = COMMAND_REPLICATE;
-            this->data = command.substr(splitPosition + 1);
-        } else if (command.substr(0, splitPosition) == REPLICATE_CONNECT_STRING) {
+        }else if (command.substr(0, splitPosition) == REPLICATE_CONNECT_STRING) {
             this->type = COMMAND_REPLICATE_CONNECT;
             this->data = command.substr(splitPosition + 1);
         } else if (command.substr(0, splitPosition) == REPLICATE_DISCONNECT_STRING) {
             this->type = COMMAND_REPLICATE_DISCONNECT;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == REPLICATE_FOLLOW_STRING) {
+            this->type = COMMAND_REPLICATE_FOLLOW;
             this->data = command.substr(splitPosition + 1);
         } else {
             throw std::invalid_argument("Invalid command");
@@ -157,14 +157,14 @@ Command::operator std::string() {
         case COMMAND_ANSWER:
             command = std::string(ANSWER_STRING);
             break;
-        case COMMAND_REPLICATE:
-            command = std::string(REPLICATE_STRING) + " " + this->data;
-            break;
         case COMMAND_REPLICATE_CONNECT:
             command = std::string(REPLICATE_CONNECT_STRING) + " " + this->data;
             break;
         case COMMAND_REPLICATE_DISCONNECT:
             command = std::string(REPLICATE_DISCONNECT_STRING) + " " + this->data;
+            break;
+        case COMMAND_REPLICATE_FOLLOW:
+            command = std::string(REPLICATE_FOLLOW_STRING) + " " + this->data;
             break;
     }
 

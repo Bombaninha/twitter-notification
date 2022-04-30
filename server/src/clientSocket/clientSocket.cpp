@@ -96,8 +96,6 @@ void ClientSocket::run() {
 
         response = this->execute(command);
 
-        server->replicate(command, profile);
-
         bzero(buffer, 256);
 
         if (response.getType() == NO_OPERATION) {
@@ -191,6 +189,8 @@ Command ClientSocket::execute(Command command) {
             currentRow->addNotification(this->profile, response.getData());
 
             response = Command(NO_OPERATION, "");
+
+            server->replicateFollow(this->profile, newFollowingUsername);
 
             break;
         }

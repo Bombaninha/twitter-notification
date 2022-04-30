@@ -34,6 +34,7 @@ class Server {
         std::thread run();
         void replicate(Command command, std::string username);
         void replicateDisconnect(std::string username, std::string host, int port);
+        void replicateFollow(std::string username, std::string follow);
 
     private:
         void serverLoop();

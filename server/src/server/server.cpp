@@ -614,19 +614,6 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             
             break;
         }
-        case COMMAND_REPLICATE: {
-            std::string data = command.getData();
-
-            std::string username = data.substr(0, data.find(" "));
-            data = data.substr(data.find(" ") + 1);
-
-            std::cout << "username: " << username << std::endl;
-            std::cout << "data: " << data << std::endl;
-
-            response = Command(NO_OPERATION, "");
-            
-            break;
-        }
         case COMMAND_REPLICATE_CONNECT: {
             std::string data = command.getData();
 
@@ -636,13 +623,13 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             std::string profile = temp.substr(temp.find(",") + 1);
 
             sharedReaderLock();
-            bool usernameDoesNotExist = masterTable.find(command.getData()) == masterTable.end();
+            bool usernameDoesNotExist = masterTable.find(profile) == masterTable.end();
             sharedReaderUnlock();
 
             if(usernameDoesNotExist) {
                 pthread_mutex_lock(&readAndWriteMutex);
                 TableRow* newTableRow = new TableRow();
-                masterTable.insert(std::make_pair(command.getData(), newTableRow));	
+                masterTable.insert(std::make_pair(profile, newTableRow));	
                 pthread_mutex_unlock(&readAndWriteMutex);
                 saveBackup();
 
@@ -661,7 +648,7 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             } else {
                 sharedReaderLock();
                 TableRow *currentTableRow;
-                currentTableRow = masterTable.find(command.getData())->second;
+                currentTableRow = masterTable.find(profile)->second;
 
                 int currentRowActiveSessions = currentTableRow->getActiveSessions();
 
@@ -705,6 +692,48 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             response = Command(NO_OPERATION, "");
             break;
         }
+        case COMMAND_REPLICATE_FOLLOW: {
+            std::string data = command.getData();
+            std::string profile = data.substr(0, data.find(","));
+            std::string follow = data.substr(data.find(",") + 1);
+
+            sharedReaderLock();
+            TableRow* currentRow = masterTable.find(profile)->second;
+			// check if current user exists 
+            bool currentUserExists = masterTable.find(profile) != masterTable.end();
+			// check if newFollowing exists
+			bool newFollowingExists = masterTable.find(follow) != masterTable.end();
+			// check if currentUser is not trying to follow himself
+			bool followingHimself = profile == follow;
+			sharedReaderUnlock();
+
+            //currentRow = table.find(this->profile)->second;
+           // std::cout << "TEST currentRow " + table.find(this->profile)->first << std::endl;
+
+            
+            if(newFollowingExists) {
+                if(!followingHimself) {
+                    sharedReaderLock();
+                    TableRow* followingRow = masterTable.find(follow)->second;
+                    bool notDuplicateFollowing = !(followingRow->hasFollower(profile));
+                    sharedReaderUnlock(); 
+                    
+                    if(notDuplicateFollowing) {
+				        followingRow->addFollower(profile);
+					    std::cout << profile + " is now following " + follow + "." << std::endl;
+				    }  else {
+					    std::cout << profile + " is already following " + follow + "." << std::endl;
+				    }  
+                    saveBackup();
+                } else {
+                    std::cout << profile + " is trying to follow himself." << std::endl;
+                }
+            } else {
+               std::cout << profile + " is trying to follow an inexistent profile" << std::endl;
+            }
+
+            response = Command(NO_OPERATION, "");
+        }
     }   
 
     return response;
@@ -741,8 +770,8 @@ void Server::createClientSocket(std::string host, int port, std::string profile,
     this->clientThreads.push_back(client_thread);
 }
 
-void Server::replicate(Command command, std::string username) {
-    Command replicateCommand(COMMAND_REPLICATE, username + " " + std::string(command));
+void Server::replicateDisconnect(std::string username, std::string host, int port) {
+    Command replicateCommand(COMMAND_REPLICATE_DISCONNECT, username + "," + std::string(host) + ":" + std::to_string(port));
 
     for (auto backup : this->backupServers) {
         Connection connection(std::get<1>(backup), std::get<2>(backup));
@@ -751,8 +780,8 @@ void Server::replicate(Command command, std::string username) {
     }
 }
 
-void Server::replicateDisconnect(std::string username, std::string host, int port) {
-    Command replicateCommand(COMMAND_REPLICATE_DISCONNECT, username + "," + std::string(host) + ":" + std::to_string(port));
+void Server::replicateFollow(std::string username, std::string follow) {
+    Command replicateCommand(COMMAND_REPLICATE_FOLLOW, username + "," + follow);
 
     for (auto backup : this->backupServers) {
         Connection connection(std::get<1>(backup), std::get<2>(backup));

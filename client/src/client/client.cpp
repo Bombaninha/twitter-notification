@@ -86,8 +86,16 @@ void Client::connectToServer() {
 void Client::handleServer() {
     connectToServer();
 
+    std::time_t lastTime = std::time(nullptr);
 
     while(running) {
+        if (std::time(nullptr) - lastTime > 3) {
+            Command noOp(NO_OPERATION, "");
+            serverConnection->sendCommand(noOp);
+
+            lastTime = std::time(nullptr);
+        }
+
         if (commands.size() > 0) {
             std::string command = commands.front();
             commands.pop();
