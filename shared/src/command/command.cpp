@@ -15,6 +15,9 @@
 #define BACKUP_STRING "BACKUP"
 #define TIC_STRING "TIC"
 #define TOC_STRING "TOC"
+#define ELECTION_STRING "ELECTION"
+#define COORDINATOR_STRING "COORDINATOR"
+#define ANSWER_STRING "ANSWER"
 
 Command::Command(std::string command) {
     if (command == std::string(NOOP_STRING)) {
@@ -72,6 +75,14 @@ Command::Command(std::string command) {
             this->type = COMMAND_TOC;
         } else if (command.substr(0, splitPosition) == NOOP_STRING) {
             this->type = NO_OPERATION;
+        } else if (command.substr(0, splitPosition) == ELECTION_STRING) {
+            this->type = COMMAND_ELECTION;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == COORDINATOR_STRING) {
+            this->type = COMMAND_COORDINATOR;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == ANSWER_STRING) {
+            this->type = COMMAND_ANSWER;
         } else {
             throw std::invalid_argument("Invalid command");
         }
@@ -124,6 +135,15 @@ Command::operator std::string() {
             break;
         case COMMAND_TOC:
             command = std::string(TOC_STRING);
+            break;
+        case COMMAND_ELECTION:
+            command = std::string(ELECTION_STRING) + " " + this->data;
+            break;
+        case COMMAND_COORDINATOR:
+            command = std::string(COORDINATOR_STRING) + " " + this->data;
+            break;
+        case COMMAND_ANSWER:
+            command = std::string(ANSWER_STRING);
             break;
     }
 

@@ -39,6 +39,7 @@ class Server {
         void createClientSocket(int port, std::string profile, struct sockaddr_in client_addr);
         void backupLoop();
         void primaryLoop();
+        void electionLoop();
 };
 
 #endif

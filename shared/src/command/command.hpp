@@ -15,7 +15,10 @@ enum CommandType {
     COMMAND_ALIVE,
     COMMAND_BACKUP,
     COMMAND_TIC,
-    COMMAND_TOC
+    COMMAND_TOC,
+    COMMAND_ELECTION,
+    COMMAND_COORDINATOR,
+    COMMAND_ANSWER
 };
 
 class Command {

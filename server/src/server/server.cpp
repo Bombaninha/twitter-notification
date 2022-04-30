@@ -25,6 +25,8 @@ std::map<std::string, TableRow*> masterTable;
 
 int readers = 0;
 
+bool electionStarted = false;
+
 void saveBackup() {
 	std::list<std::string> followers;
 	std::string username;
@@ -245,11 +247,11 @@ void Server::backupLoop() {
     char buffer[256];
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
-    
+
     std::time_t lastTime = std::time(nullptr);
 
     while (!this->isPrimary) {
-        if (std::time(nullptr) - lastTime > 3) {
+        if (std::time(nullptr) - lastTime > 3 && !electionStarted) {
             Command ticCommand(COMMAND_TIC, "");
 
             this->primaryConnection->sendCommand(ticCommand);
@@ -257,11 +259,14 @@ void Server::backupLoop() {
             std::string responseString = this->primaryConnection->listenToServer();
 
             if (responseString.empty()) {
-                std::cout << "Primário morto" << std::endl;
-                continue;
-            }
+                if (!electionStarted) {
+                    electionStarted = true;
+                    std::cout << "Starting election" << std::endl;
 
-            Command responseCommand(responseString);
+                    std::thread electionThread(&Server::electionLoop, this);
+                    electionThread.detach();
+                }
+            }
 
             lastTime = std::time(nullptr);
         }
@@ -312,9 +317,9 @@ void Server::primaryLoop() {
             continue;
         }
 
-        if (std::string(buffer) != "TIC") {
+        // if (std::string(buffer) != "TIC") {
             std::cout << "Recieved: " << buffer << std::endl;
-        }
+        // }
 
         Command command = Command(std::string(buffer));
 
@@ -331,10 +336,71 @@ void Server::primaryLoop() {
             continue;
         }
 
-        if (std::string(buffer) != "TIC") {
+        // if (std::string(buffer) != "TIC") {
             std::cout << "Sent: " << std::string(response) << std::endl;
+        // }
+    }
+}
+
+void Server::electionLoop() {
+    int pidSelf = getpid();
+    bool recievedAnswer = false;
+
+    for (auto backup : this->backupServers) {
+        int pidBackup = std::get<0>(backup);
+
+        if (pidSelf > pidBackup) {
+            continue;
+        }
+
+        std::string hostname = std::get<1>(backup);
+        int port = std::get<2>(backup);
+
+        Connection connection(hostname, port);
+
+        Command electionCommand(COMMAND_ELECTION, std::to_string(pidSelf));
+
+        connection.sendCommand(electionCommand);
+
+        std::string response = connection.listenToServer();
+
+        if (response != "") {
+            recievedAnswer = true;
+            break;
         }
     }
+
+    if (!recievedAnswer) {
+        std::cout << "eleito" << std::endl;
+
+        for (auto backup : this->backupServers) {
+            std::string hostname = std::get<1>(backup);
+            int port = std::get<2>(backup);
+
+            std::cout << "Enviando eleito para " << hostname << ":" << port << std::endl;
+
+            Connection connection(hostname, port);
+
+            Command coordinatorCommand(COMMAND_COORDINATOR, std::to_string(pidSelf));
+
+            connection.sendCommand(coordinatorCommand);
+
+            std::string response = connection.listenToServer();
+
+            while (response == "") {
+                std::cout << "Enviando eleito para " << hostname << ":" << port << std::endl;
+
+                connection.sendCommand(coordinatorCommand);
+                response = connection.listenToServer();
+            }
+
+            std::cout << "Recieved: " << response << std::endl;
+        }
+
+        this->isPrimary = true;
+    }
+
+    std::cout << "Election ended" << std::endl;
 }
 
 std::thread Server::run() {
@@ -459,6 +525,47 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
         }
         case COMMAND_TIC: {
             response = Command(COMMAND_TOC, "");
+            break;
+        }
+        case COMMAND_ELECTION: {
+            int pidSelf = getpid();
+
+            if (pidSelf > atoi(command.getData().c_str())) {
+                if (!electionStarted) {
+                    electionStarted = true;
+                    std::thread electionThread(&Server::electionLoop, this);
+                    electionThread.detach();
+                }
+
+                response = Command(COMMAND_ANSWER, "");
+                break;
+            }
+
+            break;
+        }
+        case COMMAND_ANSWER: {
+            response = Command(COMMAND_ANSWER, "");
+            break;
+        }
+        case COMMAND_COORDINATOR: {
+            int coordPid = atoi(command.getData().c_str());
+
+            std::vector<std::tuple<int, std::string, int>> newBackupList;
+
+            for (auto backup : this->backupServers) {
+                if (std::get<0>(backup) != coordPid) {
+                    newBackupList.push_back(backup);
+                } else {
+                    this->primaryConnection = new Connection(std::get<1>(backup), std::get<2>(backup));
+                }
+            }
+
+            this->backupServers = newBackupList;
+
+            electionStarted = false;
+
+            response = Command(NO_OPERATION, "");
+            
             break;
         }
     }   
