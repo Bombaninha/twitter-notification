@@ -734,6 +734,30 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
 
             response = Command(NO_OPERATION, "");
         }
+        case COMMAND_REPLICATE_SEND: {
+            std::string data = command.getData();
+            std::string profile = data.substr(0, data.find("&@"));
+            std::string message = data.substr(data.find("&@") + 2);
+
+            sharedReaderLock();
+            TableRow* currentRow = masterTable.find(profile)->second;
+            sharedReaderUnlock(); 
+
+			std::list<std::string> followers = currentRow->getFollowers();
+
+            if(followers.empty()){
+                response = Command(COMMAND_ERROR, "You have no followers!");
+            } else {
+                //coloca na lista de msg_to_receive de todos segudores
+                for (std::string follower : followers){
+                    TableRow* followerRow = masterTable.find(follower)->second;
+                    if (followerRow->getActiveSessions() == 0) {
+                        followerRow->addNotification(profile, message);
+                    }
+                } 
+                response = Command(COMMAND_SEND, "Your message has been sent to your followers.");    
+            }
+        }
     }   
 
     return response;
@@ -782,6 +806,16 @@ void Server::replicateDisconnect(std::string username, std::string host, int por
 
 void Server::replicateFollow(std::string username, std::string follow) {
     Command replicateCommand(COMMAND_REPLICATE_FOLLOW, username + "," + follow);
+
+    for (auto backup : this->backupServers) {
+        Connection connection(std::get<1>(backup), std::get<2>(backup));
+
+        connection.sendCommand(replicateCommand);
+    }
+}
+
+void Server::replicateSend(std::string username, std::string message) {
+    Command replicateCommand(COMMAND_REPLICATE_SEND, username + "&@" + message);
 
     for (auto backup : this->backupServers) {
         Connection connection(std::get<1>(backup), std::get<2>(backup));

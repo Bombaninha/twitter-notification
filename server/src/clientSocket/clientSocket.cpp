@@ -205,16 +205,17 @@ Command ClientSocket::execute(Command command) {
             if(followers.empty()){
                 response = Command(COMMAND_ERROR, "You have no followers!");
             } else {
-                std::cout << "tamo aqui no teste" << std::endl;
                 std::string message = command.getData();
                 //coloca na lista de msg_to_receive de todos segudores
                 for (std::string follower : followers){
-                    std::cout << "achou um follower pelo menos!" << std::endl;
                     TableRow* followerRow = masterTable.find(follower)->second;
                     followerRow->addNotification(this->profile, message); 
                 } 
                 response = Command(COMMAND_SEND, "Your message has been sent to your followers.");    
             }
+
+            server->replicateSend(this->profile, command.getData());
+
             break;
         }
         case COMMAND_EXIT: {

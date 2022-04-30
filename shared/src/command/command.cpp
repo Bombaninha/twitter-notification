@@ -21,6 +21,7 @@
 #define REPLICATE_CONNECT_STRING "REPLICATE_CONNECT"
 #define REPLICATE_DISCONNECT_STRING "REPLICATE_DISCONNECT"
 #define REPLICATE_FOLLOW_STRING "REPLICATE_FOLLOW"
+#define REPLICATE_SEND_STRING "REPLICATE_SEND"
 
 Command::Command(std::string command) {
     if (command == std::string(NOOP_STRING)) {
@@ -95,6 +96,9 @@ Command::Command(std::string command) {
         } else if (command.substr(0, splitPosition) == REPLICATE_FOLLOW_STRING) {
             this->type = COMMAND_REPLICATE_FOLLOW;
             this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == REPLICATE_SEND_STRING) {
+            this->type = COMMAND_REPLICATE_SEND;
+            this->data = command.substr(splitPosition + 1);
         } else {
             throw std::invalid_argument("Invalid command");
         }
@@ -165,6 +169,9 @@ Command::operator std::string() {
             break;
         case COMMAND_REPLICATE_FOLLOW:
             command = std::string(REPLICATE_FOLLOW_STRING) + " " + this->data;
+            break;
+        case COMMAND_REPLICATE_SEND:
+            command = std::string(REPLICATE_SEND_STRING) + " " + this->data;
             break;
     }
 
