@@ -9,6 +9,7 @@
 #include <map>
 
 #include "../table/tableRow.hpp"
+#include "../server/server.hpp"
 
 extern pthread_mutex_t readMutex;
 extern pthread_mutex_t readAndWriteMutex;
@@ -16,9 +17,11 @@ extern int readers;
 extern void sharedReaderLock();
 extern void sharedReaderUnlock();
 
+extern Server* server;
+
 extern void saveBackup();
 
-ClientSocket::ClientSocket(int port, std::string profile, struct sockaddr_in client_addr) {
+ClientSocket::ClientSocket(std::string host, int port, std::string profile, struct sockaddr_in client_addr) {
     this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 
     if (this->sockfd < 0) {
@@ -48,6 +51,8 @@ ClientSocket::ClientSocket(int port, std::string profile, struct sockaddr_in cli
 	masterTable.insert(std::make_pair(profile, newTableRow));
     this->profile = profile;
     this->client_addr = client_addr;
+    this->host = host;
+    this->port = port;
 }
 
 ClientSocket::~ClientSocket() {
@@ -91,6 +96,8 @@ void ClientSocket::run() {
 
         response = this->execute(command);
 
+        server->replicate(command, profile);
+
         bzero(buffer, 256);
 
         if (response.getType() == NO_OPERATION) {
@@ -115,7 +122,7 @@ void ClientSocket::run() {
             currentTableRow = masterTable.find(profile)->second;
             sharedReaderUnlock();
 
-            currentTableRow->closeSession();            
+            currentTableRow->closeSession(this->host, this->port);            
             
             pthread_t thread_id = pthread_self();
             printf("Exiting socket thread: %d\n", (int)thread_id);
@@ -233,11 +240,11 @@ void ClientSocket::listenToNotifications(struct sockaddr_in client_addr){
 	TableRow* currentRow = masterTable.find(this->profile)->second;
     if (!(currentRow->messagesToReceive.empty())){
 		//se 1 sessao ativa, pode ler e remover da lista de msg_to_receive
-		if(currentRow->activeSessions == 1){
+		if(currentRow->getActiveSessions() == 1){
             notification = currentRow->popNotification();
             std::cout << "NOTIFICATION: " << notification << std::endl;
             response = Command(COMMAND_NOTIFICATION, notification);
-        } else if(currentRow->activeSessions == 2){
+        } else if(currentRow->getActiveSessions() == 2){
             bool wasNotificationDelivered = currentRow->getNotificationDelivered();
 
             if(wasNotificationDelivered){

@@ -32,11 +32,12 @@ class Server {
         ~Server();
         void setPrimary();
         std::thread run();
+        void replicate(Command command, std::string username);
 
     private:
         void serverLoop();
         Command execute(Command command, struct sockaddr_in client_addr);
-        void createClientSocket(int port, std::string profile, struct sockaddr_in client_addr);
+        void createClientSocket(std::string host, int port, std::string profile, struct sockaddr_in client_addr);
         void backupLoop();
         void primaryLoop();
         void electionLoop();

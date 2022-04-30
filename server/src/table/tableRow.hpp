@@ -4,10 +4,11 @@
 #include <string>
 #include <list>
 #include <map>
+#include <vector>
 
 class TableRow {
     public:
-        int activeSessions;
+        std::vector<std::pair<std::string, int>> activeSessions;
         bool notificationDelivered;
         std::list<std::string> followers;
         std::list<std::string> messagesToReceive;
@@ -15,9 +16,10 @@ class TableRow {
     public:
         TableRow();
         ~TableRow();
-        void startSession();
-        void closeSession();
+        void startSession(std::string host, int port);
+        void closeSession(std::string host, int port);
         int getActiveSessions();
+        std::vector<std::pair<std::string, int>> sessions();
         bool getNotificationDelivered();
         void setNotificationDelivered(bool wasNotificationDelivered);
         std::list<std::string> getFollowers();

@@ -14,9 +14,10 @@ class ClientSocket {
     int port;
     std::string profile;
     struct sockaddr_in client_addr;
+    std::string host;
 
     public:
-        ClientSocket(int port, std::string profile, struct sockaddr_in client_addr);
+        ClientSocket(std::string host, int port, std::string profile, struct sockaddr_in client_addr);
         ~ClientSocket();
         void run();
         void listenToNotifications(struct sockaddr_in client_addr);

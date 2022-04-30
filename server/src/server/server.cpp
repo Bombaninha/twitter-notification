@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <unistd.h>
 #include <utility>
@@ -238,6 +239,20 @@ void Server::setPrimary() {
 void Server::serverLoop() {
     if (!this->isPrimary) {
         this->backupLoop();
+
+        for (auto user : masterTable) {
+            for (auto session : user.second->sessions()) {
+                masterTable[user.first]->closeSession(session.first, session.second);
+
+                auto host = session.first;
+                auto port = session.second;
+                struct sockaddr_in client_addr;
+
+                std::cout << "Connecting to " << user.first << " at " << host << ":" << port << std::endl;
+
+                this->createClientSocket(host, port, user.first, client_addr);
+            }
+        }
     }
 
     this->primaryLoop();
@@ -443,6 +458,8 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
     switch(command.getType()) {
         case COMMAND_CONNECT:
             {
+
+                char *ip = inet_ntoa(client_addr.sin_addr);
             // Se já existe 2 active sessions
                 sharedReaderLock();
                 bool usernameDoesNotExist = masterTable.find(command.getData()) == masterTable.end();
@@ -455,7 +472,7 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
                     pthread_mutex_unlock(&readAndWriteMutex);
                     saveBackup();
 
-                    this->createClientSocket(this->nextClientPort, command.getData(), client_addr);
+                    this->createClientSocket(ip, this->nextClientPort, command.getData(), client_addr);
                     response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
                     pthread_mutex_lock(&mutex);
                     this->nextClientPort++;
@@ -472,7 +489,7 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
                     if (currentRowActiveSessions >= MAX_CONNECTIONS_OF_SAME_USER){
                         response = Command(COMMAND_ERROR, "\n denied: there are already 2 active sessions!\n" );
                     } else {
-                        this->createClientSocket(this->nextClientPort, command.getData(), client_addr);
+                        this->createClientSocket(ip, this->nextClientPort, command.getData(), client_addr);
                         response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
                         pthread_mutex_lock(&mutex);
                         this->nextClientPort++;
@@ -597,14 +614,97 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             
             break;
         }
+        case COMMAND_REPLICATE: {
+            std::string data = command.getData();
+
+            std::string username = data.substr(0, data.find(" "));
+            data = data.substr(data.find(" ") + 1);
+
+            std::cout << "username: " << username << std::endl;
+            std::cout << "data: " << data << std::endl;
+
+            response = Command(NO_OPERATION, "");
+            
+            break;
+        }
+        case COMMAND_REPLICATE_CONNECT: {
+            std::string data = command.getData();
+
+            std::string hostname = data.substr(0, data.find(":"));
+            auto temp = data.substr(data.find(":") + 1);
+            std::string port = temp.substr(0, temp.find(","));
+            std::string profile = temp.substr(temp.find(",") + 1);
+
+            sharedReaderLock();
+            bool usernameDoesNotExist = masterTable.find(command.getData()) == masterTable.end();
+            sharedReaderUnlock();
+
+            if(usernameDoesNotExist) {
+                pthread_mutex_lock(&readAndWriteMutex);
+                TableRow* newTableRow = new TableRow();
+                masterTable.insert(std::make_pair(command.getData(), newTableRow));	
+                pthread_mutex_unlock(&readAndWriteMutex);
+                saveBackup();
+
+                sharedReaderLock();
+                TableRow *currentTableRow;
+                currentTableRow = masterTable.find(profile)->second;
+                sharedReaderUnlock();
+
+                // aumenta em um a quantidade de conexões do mesmo usuário
+                currentTableRow->startSession(hostname, atoi(port.c_str()));
+
+                response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
+                pthread_mutex_lock(&mutex);
+                this->nextClientPort++;
+                pthread_mutex_unlock(&mutex);
+            } else {
+                sharedReaderLock();
+                TableRow *currentTableRow;
+                currentTableRow = masterTable.find(command.getData())->second;
+
+                int currentRowActiveSessions = currentTableRow->getActiveSessions();
+
+                sharedReaderUnlock();
+
+                if (currentRowActiveSessions >= MAX_CONNECTIONS_OF_SAME_USER){
+                    response = Command(COMMAND_ERROR, "\n denied: there are already 2 active sessions!\n" );
+                } else {
+                    sharedReaderLock();
+                    TableRow *currentTableRow;
+                    currentTableRow = masterTable.find(profile)->second;
+                    sharedReaderUnlock();
+
+                    // aumenta em um a quantidade de conexões do mesmo usuário
+                    currentTableRow->startSession(hostname, atoi(port.c_str()));
+                    
+                    response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
+                    pthread_mutex_lock(&mutex);
+                    this->nextClientPort++;
+                    pthread_mutex_unlock(&mutex);
+                }
+            }
+            
+            break;
+        }
+        // TODO: replicate disconnect
     }   
+
     return response;
 }
 
-void Server::createClientSocket(int port, std::string profile, struct sockaddr_in client_addr) {
-    ClientSocket *clientSocket = new ClientSocket(port, profile, client_addr);
-    
+void Server::createClientSocket(std::string host, int port, std::string profile, struct sockaddr_in client_addr) {
     std::cout << "User " + profile + " is connecting...";
+
+    ClientSocket *clientSocket = new ClientSocket(host, port, profile, client_addr);
+
+    Command replicateCommand(COMMAND_REPLICATE_CONNECT, std::string(host) + ":" + std::to_string(port) + "," + profile);
+    
+    for (auto backup : this->backupServers) {
+        Connection connection(std::get<1>(backup), std::get<2>(backup));
+
+        connection.sendCommand(replicateCommand);
+    }
 
 	sharedReaderLock();
     TableRow *currentTableRow;
@@ -612,7 +712,7 @@ void Server::createClientSocket(int port, std::string profile, struct sockaddr_i
 	sharedReaderUnlock();
 
     // aumenta em um a quantidade de conexões do mesmo usuário
-	currentTableRow->startSession();
+	currentTableRow->startSession(host, port);
 
 	std::cout << " connected." << std::endl;
 
@@ -622,4 +722,16 @@ void Server::createClientSocket(int port, std::string profile, struct sockaddr_i
     
     this->clients.push_back(clientSocket);
     this->clientThreads.push_back(client_thread);
+}
+
+void Server::replicate(Command command, std::string username) {
+    Command replicateCommand(COMMAND_REPLICATE, username + " " + std::string(command));
+
+    // std::cout << std::string(replicateCommand) << std::endl;
+
+    for (auto backup : this->backupServers) {
+        Connection connection(std::get<1>(backup), std::get<2>(backup));
+
+        connection.sendCommand(replicateCommand);
+    }
 }

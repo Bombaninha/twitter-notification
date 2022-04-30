@@ -13,7 +13,7 @@ extern void sharedReaderLock();
 extern void sharedReaderUnlock();
 
 TableRow::TableRow() {
-    this->activeSessions = 0;
+    this->activeSessions = {};
     this->notificationDelivered = false;
 	this->followers = {};
 	this->messagesToReceive = {};
@@ -23,24 +23,37 @@ TableRow::~TableRow() {
     //std::cout << "estou sendo destruido" << std::endl;
 }
 
-void TableRow::startSession() {
+void TableRow::startSession(std::string host, int port) {
     pthread_mutex_lock(&readAndWriteMutex);
-	this->activeSessions += 1;
+	this->activeSessions.push_back(std::make_pair(host, port));
 	pthread_mutex_unlock(&readAndWriteMutex);
 }
 
-void TableRow::closeSession() {
+void TableRow::closeSession(std::string host, int port) {
 	pthread_mutex_lock(&readAndWriteMutex);
-	this->activeSessions -= 1;
+	for (std::vector<std::pair<std::string, int>>::iterator it = this->activeSessions.begin(); it != this->activeSessions.end(); ++it) {
+		if (it->first == host && it->second == port) {
+			this->activeSessions.erase(it);
+			break;
+		}
+	}
 	pthread_mutex_unlock(&readAndWriteMutex);
 }
 
 int TableRow::getActiveSessions() {
 	sharedReaderLock();
-	int activeSessions = this->activeSessions;
+	int activeSessions = this->activeSessions.size();
 	sharedReaderUnlock();
 
 	return activeSessions;
+}
+
+std::vector<std::pair<std::string, int>> TableRow::sessions() {
+	sharedReaderLock();
+	std::vector<std::pair<std::string, int>> sessions = this->activeSessions;
+	sharedReaderUnlock();
+
+	return sessions;
 }
 
 bool TableRow::getNotificationDelivered() {

@@ -18,6 +18,8 @@
 #define ELECTION_STRING "ELECTION"
 #define COORDINATOR_STRING "COORDINATOR"
 #define ANSWER_STRING "ANSWER"
+#define REPLICATE_STRING "REPLICATE"
+#define REPLICATE_CONNECT_STRING "REPLICATE_CONNECT"
 
 Command::Command(std::string command) {
     if (command == std::string(NOOP_STRING)) {
@@ -83,6 +85,12 @@ Command::Command(std::string command) {
             this->data = command.substr(splitPosition + 1);
         } else if (command.substr(0, splitPosition) == ANSWER_STRING) {
             this->type = COMMAND_ANSWER;
+        } else if (command.substr(0, splitPosition) == REPLICATE_STRING) {
+            this->type = COMMAND_REPLICATE;
+            this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == REPLICATE_CONNECT_STRING) {
+            this->type = COMMAND_REPLICATE_CONNECT;
+            this->data = command.substr(splitPosition + 1);
         } else {
             throw std::invalid_argument("Invalid command");
         }
@@ -144,6 +152,12 @@ Command::operator std::string() {
             break;
         case COMMAND_ANSWER:
             command = std::string(ANSWER_STRING);
+            break;
+        case COMMAND_REPLICATE:
+            command = std::string(REPLICATE_STRING) + " " + this->data;
+            break;
+        case COMMAND_REPLICATE_CONNECT:
+            command = std::string(REPLICATE_CONNECT_STRING) + " " + this->data;
             break;
     }
 
