@@ -40,6 +40,7 @@ class Server {
         void backupLoop();
         void primaryLoop();
         void electionLoop();
+        void changePort();
 };
 
 #endif

@@ -243,6 +243,34 @@ void Server::serverLoop() {
     this->primaryLoop();
 }
 
+void Server::changePort() {
+    close(this->sockfd);
+
+    this->sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
+    if (setsockopt(this->sockfd, SOL_SOCKET, SO_RCVTIMEO,&tv,sizeof(tv)) < 0) {
+        perror("Error");
+    }
+
+    if (this->sockfd < 0) {
+        throw std::runtime_error("Could not create socket");
+    }
+
+    struct sockaddr_in server_addr;
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(primaryPort);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    bzero(&(server_addr.sin_zero), 8);
+
+    if (bind(this->sockfd, (struct sockaddr *) &server_addr, sizeof(struct sockaddr)) < 0) {
+        throw std::runtime_error("Could not bind socket");
+    }
+}
+
 void Server::backupLoop() {
     char buffer[256];
     struct sockaddr_in client_addr;
@@ -371,13 +399,15 @@ void Server::electionLoop() {
     }
 
     if (!recievedAnswer) {
-        std::cout << "eleito" << std::endl;
+        std::cout << "I am the coordinator" << std::endl;
+
+        this->changePort();
 
         for (auto backup : this->backupServers) {
             std::string hostname = std::get<1>(backup);
             int port = std::get<2>(backup);
 
-            std::cout << "Enviando eleito para " << hostname << ":" << port << std::endl;
+            std::cout << "Sending coordinator announcement to " << hostname << ":" << port << std::endl;
 
             Connection connection(hostname, port);
 
@@ -388,13 +418,11 @@ void Server::electionLoop() {
             std::string response = connection.listenToServer();
 
             while (response == "") {
-                std::cout << "Enviando eleito para " << hostname << ":" << port << std::endl;
+                std::cout << "Sending coordinator announcement to " << hostname << ":" << port << std::endl;
 
                 connection.sendCommand(coordinatorCommand);
                 response = connection.listenToServer();
             }
-
-            std::cout << "Recieved: " << response << std::endl;
         }
 
         this->isPrimary = true;
@@ -555,9 +583,10 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             for (auto backup : this->backupServers) {
                 if (std::get<0>(backup) != coordPid) {
                     newBackupList.push_back(backup);
-                } else {
-                    this->primaryConnection = new Connection(std::get<1>(backup), std::get<2>(backup));
                 }
+                // else {
+                //     this->primaryConnection = new Connection(std::get<1>(backup), std::get<2>(backup));
+                // }
             }
 
             this->backupServers = newBackupList;
