@@ -234,61 +234,75 @@ void Server::setPrimary() {
 }
 
 void Server::serverLoop() {
+    if (!this->isPrimary) {
+        this->backupLoop();
+    }
+
+    this->primaryLoop();
+}
+
+void Server::backupLoop() {
+    char buffer[256];
+    struct sockaddr_in client_addr;
+    socklen_t client_addr_len = sizeof(struct sockaddr_in);
+    
+    std::time_t lastTime = std::time(nullptr);
+
+    while (!this->isPrimary) {
+        if (std::time(nullptr) - lastTime > 3) {
+            Command ticCommand(COMMAND_TIC, "");
+
+            this->primaryConnection->sendCommand(ticCommand);
+
+            std::string responseString = this->primaryConnection->listenToServer();
+
+            if (responseString.empty()) {
+                std::cout << "Primário morto" << std::endl;
+                continue;
+            }
+
+            Command responseCommand(responseString);
+
+            lastTime = std::time(nullptr);
+        }
+
+        bzero(buffer, 256);
+
+        int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
+
+        if (recieve > 0) {
+            if (std::string(buffer) != "TOC") {
+                std::cout << "Recieved: " << buffer << std::endl;
+            }
+
+            Command command = Command(std::string(buffer));
+
+            if (command.getType() == NO_OPERATION) {
+                continue;
+            }
+
+            Command response = this->execute(command, client_addr);
+
+            int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, client_addr_len);
+
+            if (send < 0) {
+                std::cout << "Error sending data" << std::endl;
+                continue;
+            }
+
+            if (std::string(buffer) != "TIC") {
+                std::cout << "Sent: " << std::string(response) << std::endl;
+            }
+        }
+    }
+}
+
+void Server::primaryLoop() {
     char buffer[256];
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
 
-    std::time_t lastTime = std::time(nullptr);
-
     while(true) {
-        while (!this->isPrimary) {
-            if (std::time(nullptr) - lastTime > 3) {
-                Command ticCommand(COMMAND_TIC, "");
-
-                this->primaryConnection->sendCommand(ticCommand);
-
-                std::string responseString = this->primaryConnection->listenToServer();
-
-                if (responseString.empty()) {
-                    std::cout << "Primário morto" << std::endl;
-                    continue;
-                }
-
-                Command responseCommand(responseString);
-
-                lastTime = std::time(nullptr);
-            }
-
-            bzero(buffer, 256);
-
-            int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
-
-            if (recieve > 0) {
-                if (std::string(buffer) != "TOC") {
-                    std::cout << "Recieved: " << buffer << std::endl;
-                }
-
-                Command command = Command(std::string(buffer));
-
-                if (command.getType() == NO_OPERATION) {
-                    continue;
-                }
-
-                Command response = this->execute(command, client_addr);
-
-                int send = sendto(this->sockfd, std::string(response).c_str(), std::string(response).length(), 0, (struct sockaddr *) &client_addr, client_addr_len);
-
-                if (send < 0) {
-                    std::cout << "Error sending data" << std::endl;
-                    continue;
-                }
-
-                if (std::string(buffer) != "TIC") {
-                    std::cout << "Sent: " << std::string(response) << std::endl;
-                }
-            }
-        }
-
         bzero(buffer, 256);
 
         int recieve = recvfrom(this->sockfd, buffer, 256, 0, (struct sockaddr *) &client_addr, &client_addr_len);
@@ -320,8 +334,6 @@ void Server::serverLoop() {
         if (std::string(buffer) != "TIC") {
             std::cout << "Sent: " << std::string(response) << std::endl;
         }
-
-        bzero(buffer, 256);
     }
 }
 
