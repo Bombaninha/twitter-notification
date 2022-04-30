@@ -33,6 +33,7 @@ class Server {
         void setPrimary();
         std::thread run();
         void replicate(Command command, std::string username);
+        void replicateDisconnect(std::string username, std::string host, int port);
 
     private:
         void serverLoop();

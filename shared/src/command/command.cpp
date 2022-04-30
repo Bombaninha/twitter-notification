@@ -20,6 +20,7 @@
 #define ANSWER_STRING "ANSWER"
 #define REPLICATE_STRING "REPLICATE"
 #define REPLICATE_CONNECT_STRING "REPLICATE_CONNECT"
+#define REPLICATE_DISCONNECT_STRING "REPLICATE_DISCONNECT"
 
 Command::Command(std::string command) {
     if (command == std::string(NOOP_STRING)) {
@@ -91,6 +92,9 @@ Command::Command(std::string command) {
         } else if (command.substr(0, splitPosition) == REPLICATE_CONNECT_STRING) {
             this->type = COMMAND_REPLICATE_CONNECT;
             this->data = command.substr(splitPosition + 1);
+        } else if (command.substr(0, splitPosition) == REPLICATE_DISCONNECT_STRING) {
+            this->type = COMMAND_REPLICATE_DISCONNECT;
+            this->data = command.substr(splitPosition + 1);
         } else {
             throw std::invalid_argument("Invalid command");
         }
@@ -158,6 +162,9 @@ Command::operator std::string() {
             break;
         case COMMAND_REPLICATE_CONNECT:
             command = std::string(REPLICATE_CONNECT_STRING) + " " + this->data;
+            break;
+        case COMMAND_REPLICATE_DISCONNECT:
+            command = std::string(REPLICATE_DISCONNECT_STRING) + " " + this->data;
             break;
     }
 

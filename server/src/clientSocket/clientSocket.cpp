@@ -116,6 +116,7 @@ void ClientSocket::run() {
 
 
         if(command.getType() == COMMAND_EXIT){
+            server->replicateDisconnect(profile, host, port);
             
             sharedReaderLock();
             TableRow *currentTableRow;

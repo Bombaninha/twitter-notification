@@ -687,7 +687,24 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             
             break;
         }
-        // TODO: replicate disconnect
+        case COMMAND_REPLICATE_DISCONNECT: {
+            std::string data = command.getData();
+
+            std::string username = data.substr(0, data.find(","));
+            data = data.substr(data.find(",") + 1);
+            std::string host = data.substr(0, data.find(":"));
+            std::string port = data.substr(data.find(":") + 1);
+
+            sharedReaderLock();
+            TableRow *currentTableRow;
+            currentTableRow = masterTable.find(username)->second;
+            sharedReaderUnlock();
+
+            currentTableRow->closeSession(host, atoi(port.c_str()));
+
+            response = Command(NO_OPERATION, "");
+            break;
+        }
     }   
 
     return response;
@@ -727,7 +744,15 @@ void Server::createClientSocket(std::string host, int port, std::string profile,
 void Server::replicate(Command command, std::string username) {
     Command replicateCommand(COMMAND_REPLICATE, username + " " + std::string(command));
 
-    // std::cout << std::string(replicateCommand) << std::endl;
+    for (auto backup : this->backupServers) {
+        Connection connection(std::get<1>(backup), std::get<2>(backup));
+
+        connection.sendCommand(replicateCommand);
+    }
+}
+
+void Server::replicateDisconnect(std::string username, std::string host, int port) {
+    Command replicateCommand(COMMAND_REPLICATE_DISCONNECT, username + "," + std::string(host) + ":" + std::to_string(port));
 
     for (auto backup : this->backupServers) {
         Connection connection(std::get<1>(backup), std::get<2>(backup));
