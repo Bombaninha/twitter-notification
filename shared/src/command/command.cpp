@@ -24,7 +24,7 @@
 #define REPLICATE_SEND_STRING "REPLICATE_SEND"
 
 Command::Command(std::string command) {
-    if (command == std::string(NOOP_STRING)) {
+    if (command.rfind(std::string(NOOP_STRING), 0) == 0) {
         this->type = NO_OPERATION;
         this->data = "";
         return;

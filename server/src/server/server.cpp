@@ -472,6 +472,14 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
                     pthread_mutex_unlock(&readAndWriteMutex);
                     saveBackup();
 
+                    Command replicateCommand(COMMAND_REPLICATE_CONNECT, std::string(ip) + ":" + std::to_string(this->nextClientPort) + "," + command.getData());
+                        
+                    for (auto backup : this->backupServers) {
+                        Connection connection(std::get<1>(backup), std::get<2>(backup));
+
+                        connection.sendCommand(replicateCommand);
+                    }
+
                     this->createClientSocket(ip, this->nextClientPort, command.getData(), client_addr);
                     response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
                     pthread_mutex_lock(&mutex);
@@ -489,6 +497,14 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
                     if (currentRowActiveSessions >= MAX_CONNECTIONS_OF_SAME_USER){
                         response = Command(COMMAND_ERROR, "\n denied: there are already 2 active sessions!\n" );
                     } else {
+                        Command replicateCommand(COMMAND_REPLICATE_CONNECT, std::string(ip) + ":" + std::to_string(this->nextClientPort) + "," + command.getData());
+                        
+                        for (auto backup : this->backupServers) {
+                            Connection connection(std::get<1>(backup), std::get<2>(backup));
+
+                            connection.sendCommand(replicateCommand);
+                        }
+
                         this->createClientSocket(ip, this->nextClientPort, command.getData(), client_addr);
                         response = Command(COMMAND_REDIRECT, std::to_string(this->nextClientPort));
                         pthread_mutex_lock(&mutex);
@@ -733,6 +749,7 @@ Command Server::execute(Command command, struct sockaddr_in client_addr) {
             }
 
             response = Command(NO_OPERATION, "");
+            break;
         }
         case COMMAND_REPLICATE_SEND: {
             std::string data = command.getData();
@@ -767,14 +784,6 @@ void Server::createClientSocket(std::string host, int port, std::string profile,
     std::cout << "User " + profile + " is connecting...";
 
     ClientSocket *clientSocket = new ClientSocket(host, port, profile, client_addr);
-
-    Command replicateCommand(COMMAND_REPLICATE_CONNECT, std::string(host) + ":" + std::to_string(port) + "," + profile);
-    
-    for (auto backup : this->backupServers) {
-        Connection connection(std::get<1>(backup), std::get<2>(backup));
-
-        connection.sendCommand(replicateCommand);
-    }
 
 	sharedReaderLock();
     TableRow *currentTableRow;
